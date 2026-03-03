@@ -109,10 +109,10 @@ const LoginPage = () => {
                 <span className="text-[10px] font-bold text-slate-500">ADMIN: admin / admin</span>
               </div>
               <div className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-500">SECRETARIA: secretaria_ana / 1234</span>
+                <span className="text-[10px] font-bold text-slate-500">SECRETARIA: sec_ana / 123</span>
               </div>
               <div className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-500">ODONTÓLOGO: dr_garcia / odontosys</span>
+                <span className="text-[10px] font-bold text-slate-500">ODONTÓLOGO: dr_garcia / 123</span>
               </div>
             </div>
           </div>
