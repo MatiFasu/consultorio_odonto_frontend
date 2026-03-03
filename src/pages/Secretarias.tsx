@@ -39,7 +39,17 @@ const SecretariasPage = () => {
         UsuarioService.getAll()
       ]);
       setSecretarias(sData);
-      setUsuarios(uData.filter(u => u.rol === 'SECRETARIA'));
+
+      // Filtramos: 
+      // 1. Que el rol sea SECRETARIA (insensible a mayúsculas)
+      // 2. Que no esté ya asignado a otra secretaria
+      const idsAsignados = sData.filter(s => s.unUsuario).map(s => s.unUsuario?.id_usuario);
+      const disponibles = uData.filter(u => 
+        u.rol.toUpperCase() === 'SECRETARIA' && 
+        !idsAsignados.includes(u.id_usuario)
+      );
+
+      setUsuarios(disponibles);
     } catch (error) {
       console.error("Error al cargar secretarias", error);
     } finally {

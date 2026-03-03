@@ -39,8 +39,17 @@ const OdontologosPage = () => {
         UsuarioService.getAll()
       ]);
       setOdontologos(oData);
-      // Solo mostramos usuarios con rol ODONTOLOGO para vincular
-      setUsuarios(uData.filter(u => u.rol === 'ODONTOLOGO'));
+      
+      // Filtramos: 
+      // 1. Que el rol sea ODONTOLOGO (insensible a mayúsculas)
+      // 2. Que no esté ya asignado a otro odontólogo (opcional, para evitar errores)
+      const idsAsignados = oData.filter(o => o.unUsuario).map(o => o.unUsuario?.id_usuario);
+      const disponibles = uData.filter(u => 
+        u.rol.toUpperCase() === 'ODONTOLOGO' && 
+        !idsAsignados.includes(u.id_usuario)
+      );
+      
+      setUsuarios(disponibles);
     } catch (error) {
       console.error("Error al cargar datos", error);
     } finally {
