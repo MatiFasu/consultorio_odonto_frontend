@@ -10,6 +10,7 @@ export interface Odontologo {
   fecha_nac: string;
   especialidad: string;
   unHorario?: any;
+  unUsuario?: any;
 }
 
 export const OdontologoService = {

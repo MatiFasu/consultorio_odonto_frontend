@@ -40,14 +40,9 @@ const OdontologosPage = () => {
       ]);
       setOdontologos(oData);
       
-      // Filtramos: 
-      // 1. Que el rol sea ODONTOLOGO (insensible a mayúsculas)
-      // 2. Que no esté ya asignado a otro odontólogo (opcional, para evitar errores)
+      // Filtramos solo usuarios que no estén asignados para ver todos los disponibles
       const idsAsignados = oData.filter(o => o.unUsuario).map(o => o.unUsuario?.id_usuario);
-      const disponibles = uData.filter(u => 
-        u.rol.toUpperCase() === 'ODONTOLOGO' && 
-        !idsAsignados.includes(u.id_usuario)
-      );
+      const disponibles = uData.filter(u => !idsAsignados.includes(u.id_usuario));
       
       setUsuarios(disponibles);
     } catch (error) {

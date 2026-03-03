@@ -9,7 +9,7 @@ export interface Secretaria {
   direccion: string;
   fecha_nac: string;
   sector: string;
-  unUsuario: any;
+  unUsuario?: any;
 }
 
 export const SecretariaService = {
