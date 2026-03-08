@@ -100,7 +100,7 @@ const TurnosPage = () => {
       if (user?.rol === 'ODONTOLOGO') {
         const odonto = await OdontologoService.getByUserId(user.id_usuario);
         if (odonto) {
-          tData = await TurnoService.getByOdontologo(odonto.id_persona || (odonto as any).id);
+          tData = await TurnoService.getByOdontologo(odonto.id || (odonto as any).id_persona);
         } else {
           tData = [];
         }

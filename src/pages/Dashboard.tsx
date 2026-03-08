@@ -52,7 +52,7 @@ const Dashboard = () => {
       if (user?.rol === 'ODONTOLOGO') {
         const odonto = await OdontologoService.getByUserId(user.id_usuario);
         if (odonto) {
-          odontologoId = odonto.id_persona || (odonto as any).id;
+          odontologoId = odonto.id || (odonto as any).id_persona;
           relevantTurnos = await TurnoService.getByOdontologo(odontologoId!);
         } else {
           relevantTurnos = [];
