@@ -1,7 +1,7 @@
 import api from './apiClient';
 
 export interface Odontologo {
-  id_persona: number;
+  id: number;
   dni: string;
   nombre: string;
   apellido: string;
@@ -28,6 +28,10 @@ export const OdontologoService = {
   },
   delete: async (id: number) => {
     const response = await api.delete(`/odontologo/eliminar/${id}`);
+    return response.data;
+  },
+  getByUserId: async (userId: number) => {
+    const response = await api.get<Odontologo>(`/odontologo/usuario/${userId}`);
     return response.data;
   }
 };

@@ -1,7 +1,7 @@
 import api from './apiClient';
 
 export interface Paciente {
-  id_persona: number;
+  id: number;
   dni: string;
   nombre: string;
   apellido: string;
@@ -19,6 +19,10 @@ export const PacienteService = {
   },
   create: async (p: Partial<Paciente>) => {
     const response = await api.post('/paciente/crear', p);
+    return response.data;
+  },
+  update: async (p: Partial<Paciente>) => {
+    const response = await api.put('/paciente/editar', p);
     return response.data;
   },
   delete: async (id: number) => {

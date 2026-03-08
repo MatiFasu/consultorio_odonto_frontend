@@ -29,7 +29,7 @@ const HorariosPage = () => {
   };
 
   const handleEditClick = (odontologo: Odontologo) => {
-    setEditingId(odontologo.id_persona);
+    setEditingId(odontologo.id || (odontologo as any).id_persona);
     if (odontologo.unHorario) {
       setEditFormData(odontologo.unHorario);
     } else {
@@ -41,7 +41,7 @@ const HorariosPage = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const odontologo = odontologos.find(o => o.id_persona === editingId);
+      const odontologo = odontologos.find(o => (o.id || (o as any).id_persona) === editingId);
       if (!odontologo) return;
 
       let horarioFinal: Horario;
@@ -49,18 +49,21 @@ const HorariosPage = () => {
       if (editFormData.id_horario && editFormData.id_horario !== 0) {
         // ACTUALIZAR EXISTENTE
         await HorarioService.update(editFormData);
-        horarioFinal = editFormData;
       } else {
         // CREAR NUEVO Y VINCULAR
         const newId = await HorarioService.create(editFormData);
-        horarioFinal = { ...editFormData, id_horario: newId };
+        const horarioFinal = { ...editFormData, id_horario: newId };
         
-        // Actualizar el objeto odontologo con el nuevo horario
-        const updatedOdonto = { ...odontologo, unHorario: horarioFinal };
-        await OdontologoService.update(updatedOdonto);
+        // Actualizar el odontólogo solo con el nuevo horario (el backend mejorado hará el merge)
+        const payload = {
+          id: odontologo.id || (odontologo as any).id_persona,
+          unHorario: { id_horario: newId }
+        };
+        
+        await OdontologoService.update(payload);
       }
 
-      await loadData(); // Recargar todo para ver reflejados los cambios
+      await loadData();
       setEditingId(null);
     } catch (error) {
       console.error("Error al guardar horario", error);
@@ -108,7 +111,7 @@ const HorariosPage = () => {
               ) : odontologos.length === 0 ? (
                 <tr><td colSpan={5} className="p-20 text-center text-slate-400">No hay odontólogos registrados.</td></tr>
               ) : odontologos.map((o) => (
-                <tr key={o.id_persona} className="hover:bg-slate-50/50 transition-colors group">
+                <tr key={o.id || (o as any).id_persona} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-primary-600 font-black">
@@ -123,7 +126,7 @@ const HorariosPage = () => {
                     </div>
                   </td>
                   
-                  {editingId === o.id_persona ? (
+                  {editingId === (o.id || (o as any).id_persona) ? (
                     <>
                       <td className="px-6 py-5">
                         <input type="time" value={editFormData.horario_inicio} onChange={e => setEditFormData({...editFormData, horario_inicio: e.target.value})} className="px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none font-bold" />

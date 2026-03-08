@@ -7,10 +7,11 @@ const PacientesPage = () => {
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Formulario Nuevo Paciente
+  // Formulario Paciente
   const [formData, setFormData] = useState<Partial<Paciente>>({
     nombre: '',
     apellido: '',
@@ -38,19 +39,29 @@ const PacientesPage = () => {
     }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await PacienteService.create(formData);
+      if (isEditing && formData.id) {
+        await PacienteService.update(formData);
+      } else {
+        await PacienteService.create(formData);
+      }
       await loadPacientes();
       setIsModalOpen(false);
       resetForm();
     } catch (error) {
-      alert("Error al registrar paciente");
+      alert(`Error al ${isEditing ? 'actualizar' : 'registrar'} paciente`);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleEdit = (p: Paciente) => {
+    setFormData(p);
+    setIsEditing(true);
+    setIsModalOpen(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -62,6 +73,7 @@ const PacientesPage = () => {
 
   const resetForm = () => {
     setFormData({ nombre: '', apellido: '', dni: '', telefono: '', direccion: '', fecha_nac: '', tiene_OS: false, tipoSangre: 'O+' });
+    setIsEditing(false);
   };
 
   const filteredPacientes = pacientes.filter(p => 
@@ -113,7 +125,7 @@ const PacientesPage = () => {
                 <tr><td colSpan={5} className="p-20 text-center text-slate-400 font-bold">No hay pacientes registrados.</td></tr>
               ) : (
                 filteredPacientes.map((p) => (
-                  <tr key={p.id_persona} className="hover:bg-slate-50/50 transition-colors group">
+                  <tr key={p.id || (p as any).id_persona} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center font-black text-sm">
@@ -145,11 +157,14 @@ const PacientesPage = () => {
                     </td>
                     <td className="px-6 py-5 text-right pr-8">
                       <div className="flex justify-end gap-2">
-                        <button className="p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-all">
+                        <button 
+                          onClick={() => handleEdit(p)}
+                          className="p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-all"
+                        >
                           <Edit size={18} />
                         </button>
                         <button 
-                          onClick={() => handleDelete(p.id_persona)}
+                          onClick={() => handleDelete(p.id || (p as any).id_persona)}
                           className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
                         >
                           <Trash2 size={18} />
@@ -164,16 +179,16 @@ const PacientesPage = () => {
         </div>
       </div>
 
-      {/* New Patient Modal */}
+      {/* Patient Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h2 className="text-2xl font-bold text-slate-800">Alta de Paciente</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+              <h2 className="text-2xl font-bold text-slate-800">{isEditing ? 'Editar Paciente' : 'Alta de Paciente'}</h2>
+              <button onClick={() => { setIsModalOpen(false); resetForm(); }} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
             </div>
 
-            <form onSubmit={handleCreate} className="p-8 space-y-6">
+            <form onSubmit={handleSubmit} className="p-8 space-y-6">
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Nombre</label>
@@ -219,9 +234,9 @@ const PacientesPage = () => {
               </div>
 
               <div className="flex gap-4 pt-4">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold">Cancelar</button>
+                <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold">Cancelar</button>
                 <button type="submit" disabled={saving} className="flex-1 py-4 bg-primary-500 text-white rounded-2xl font-bold hover:bg-primary-600 shadow-lg shadow-primary-500/30 flex items-center justify-center gap-2">
-                  {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <><Check size={20} /> Registrar Paciente</>}
+                  {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <><Check size={20} /> {isEditing ? 'Guardar Cambios' : 'Registrar Paciente'}</>}
                 </button>
               </div>
             </form>

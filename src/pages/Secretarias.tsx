@@ -98,7 +98,7 @@ const SecretariasPage = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {secretarias.filter(s => s.nombre.toLowerCase().includes(searchTerm.toLowerCase())).map((s: any) => (
-          <div key={s.id_persona} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden group hover:shadow-xl transition-all">
+          <div key={s.id || s.id_persona} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden group hover:shadow-xl transition-all">
             <div className="h-2 bg-emerald-500"></div>
             <div className="p-6 text-left">
               <div className="flex justify-between items-start mb-4">

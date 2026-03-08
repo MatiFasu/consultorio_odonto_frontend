@@ -16,6 +16,14 @@ export const TurnoService = {
     const response = await api.get<Turno[]>('/turno/traer');
     return response.data;
   },
+  getByOdontologo: async (odontoId: number) => {
+    const response = await api.get<Turno[]>(`/turno/odontologo/${odontoId}`);
+    return response.data;
+  },
+  getUpcomingByOdontologo: async (odontoId: number) => {
+    const response = await api.get<Turno[]>(`/turno/odontologo/${odontoId}/proximos`);
+    return response.data;
+  },
   create: async (t: any) => {
     // IMPORTANTE: Según Persona.java, el campo se llama 'id'
     const pId = t.paciente.id || t.paciente.id_persona;

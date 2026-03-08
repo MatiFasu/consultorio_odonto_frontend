@@ -40,14 +40,26 @@ const Dashboard = () => {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [p, o, t] = await Promise.all([
+      const [p, o, tAll] = await Promise.all([
         PacienteService.getAll().catch(() => []),
         OdontologoService.getAll().catch(() => []),
         TurnoService.getAll().catch(() => [])
       ]);
 
-      const hoyTurnos = t.filter((turno: any) => {
-        // Normalizamos la fecha para comparar
+      let relevantTurnos = tAll;
+      let odontologoId: number | null = null;
+
+      if (user?.rol === 'ODONTOLOGO') {
+        const odonto = await OdontologoService.getByUserId(user.id_usuario);
+        if (odonto) {
+          odontologoId = odonto.id_persona || (odonto as any).id;
+          relevantTurnos = await TurnoService.getByOdontologo(odontologoId!);
+        } else {
+          relevantTurnos = [];
+        }
+      }
+
+      const hoyTurnos = relevantTurnos.filter((turno: any) => {
         const fecha = turno.fecha_turno ? new Date(turno.fecha_turno).toISOString().split('T')[0] : '';
         return fecha === today;
       });

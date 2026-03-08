@@ -1,7 +1,7 @@
 import api from './apiClient';
 
 export interface Secretaria {
-  id_persona: number;
+  id: number;
   dni: string;
   nombre: string;
   apellido: string;
