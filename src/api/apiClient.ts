@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// REEMPLAZA esta URL por la que te dé Railway o Render (ej: https://tu-backend.up.railway.app)
-const API_URL = 'http://localhost:8080'; 
+// URL de producción en Railway
+const API_URL = 'https://shimmering-youthfulness-production.up.railway.app'; 
 
 const api = axios.create({
   baseURL: API_URL,
