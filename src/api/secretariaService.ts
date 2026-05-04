@@ -9,7 +9,8 @@ export interface Secretaria {
   direccion: string;
   fecha_nac: string;
   sector: string;
-  unUsuario?: any;
+  idUsuario?: number;
+  nombreUsuario?: string;
 }
 
 export const SecretariaService = {
@@ -19,6 +20,10 @@ export const SecretariaService = {
   },
   create: async (s: Partial<Secretaria>) => {
     const response = await api.post('/secretaria/crear', s);
+    return response.data;
+  },
+  update: async (s: Partial<Secretaria>) => {
+    const response = await api.put('/secretaria/editar', s);
     return response.data;
   },
   delete: async (id: number) => {

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { UsuarioService } from '../api/usuarioService';
 import type { Usuario } from '../api/usuarioService';
-import { Shield, UserPlus, Trash2, X, Check, Lock, UserCog } from 'lucide-react';
+import { Shield, UserPlus, Trash2, X, Check, Lock, UserCog, Edit } from 'lucide-react';
 
 const UsuariosPage = () => {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState<Partial<Usuario>>({
@@ -31,19 +33,35 @@ const UsuariosPage = () => {
     }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await UsuarioService.create(formData);
-      await loadUsuarios(); // RECARGA LA LISTA DESDE LA DB
-      setIsModalOpen(false);
-      setFormData({ usuario: '', contrasenia: '', rol: 'SECRETARIA' });
+      if (isEditing && editingId) {
+        await UsuarioService.update({ ...formData, id_usuario: editingId });
+        alert("Usuario actualizado correctamente");
+      } else {
+        await UsuarioService.create(formData);
+        alert("Usuario creado correctamente");
+      }
+      await loadUsuarios();
+      closeModal();
     } catch (error) {
-      alert("Error al registrar usuario en el servidor");
+      alert("Error al procesar la solicitud en el servidor");
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleEdit = (u: Usuario) => {
+    setFormData({
+      usuario: u.usuario,
+      contrasenia: '', // No cargamos la contraseña por seguridad
+      rol: u.rol
+    });
+    setEditingId(u.id_usuario!);
+    setIsEditing(true);
+    setIsModalOpen(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -57,6 +75,13 @@ const UsuariosPage = () => {
     }
   };
 
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setIsEditing(false);
+    setEditingId(null);
+    setFormData({ usuario: '', contrasenia: '', rol: 'SECRETARIA' });
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
@@ -67,7 +92,7 @@ const UsuariosPage = () => {
             <p className="text-slate-500 text-sm">Gestiona quién puede entrar al sistema.</p>
           </div>
         </div>
-        <button onClick={() => setIsModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition-all w-full md:w-auto justify-center flex items-center gap-2">
+        <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition-all w-full md:w-auto justify-center flex items-center gap-2">
           <UserPlus size={20} /> Nuevo Acceso
         </button>
       </div>
@@ -104,11 +129,16 @@ const UsuariosPage = () => {
                     </span>
                   </td>
                   <td className="px-6 py-5 text-right pr-8">
-                    {u.usuario !== 'admin' && (
-                      <button onClick={() => u.id_usuario && handleDelete(u.id_usuario)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
-                        <Trash2 size={18} />
-                      </button>
-                    )}
+                    <div className="flex justify-end gap-2">
+                        <button onClick={() => handleEdit(u)} className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
+                            <Edit size={18} />
+                        </button>
+                        {u.usuario !== 'admin' && (
+                        <button onClick={() => u.id_usuario && handleDelete(u.id_usuario)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
+                            <Trash2 size={18} />
+                        </button>
+                        )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -122,12 +152,12 @@ const UsuariosPage = () => {
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
             <div className="p-8 border-b border-slate-100 bg-slate-50/50">
               <div className="flex justify-between items-center mb-1">
-                <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Crear Acceso</h2>
-                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+                <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{isEditing ? 'Editar Acceso' : 'Crear Acceso'}</h2>
+                <button onClick={closeModal} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
               </div>
-              <p className="text-slate-500 text-sm">Define las credenciales para el nuevo miembro.</p>
+              <p className="text-slate-500 text-sm">Define las credenciales para el miembro.</p>
             </div>
-            <form onSubmit={handleCreate} className="p-8 space-y-6">
+            <form onSubmit={handleSave} className="p-8 space-y-6">
               <div className="text-left">
                 <label className="block text-sm font-bold text-slate-700 mb-2">Nombre de Usuario</label>
                 <div className="relative">
@@ -136,10 +166,10 @@ const UsuariosPage = () => {
                 </div>
               </div>
               <div className="text-left">
-                <label className="block text-sm font-bold text-slate-700 mb-2">Contraseña</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Contraseña {isEditing && '(dejar en blanco para no cambiar)'}</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input type="password" required value={formData.contrasenia} onChange={e => setFormData({...formData, contrasenia: e.target.value})} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="••••••••" />
+                  <input type="password" required={!isEditing} value={formData.contrasenia} onChange={e => setFormData({...formData, contrasenia: e.target.value})} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="••••••••" />
                 </div>
               </div>
               <div className="text-left">
@@ -151,9 +181,9 @@ const UsuariosPage = () => {
                 </div>
               </div>
               <div className="pt-4 flex gap-4">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold">Cerrar</button>
+                <button type="button" onClick={closeModal} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold">Cerrar</button>
                 <button type="submit" disabled={saving} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 shadow-lg flex items-center justify-center gap-2">
-                  {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <><Check size={20} /> Crear Cuenta</>}
+                  {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <><Check size={20} /> {isEditing ? 'Guardar Cambios' : 'Crear Cuenta'}</>}
                 </button>
               </div>
             </form>
@@ -162,6 +192,12 @@ const UsuariosPage = () => {
       )}
     </div>
   );
+
+  function resetForm() {
+    setFormData({ usuario: '', contrasenia: '', rol: 'SECRETARIA' });
+    setIsEditing(false);
+    setEditingId(null);
+  }
 };
 
 export default UsuariosPage;

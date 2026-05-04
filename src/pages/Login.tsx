@@ -19,12 +19,11 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      const success = await AuthService.login({ username, contrasenia: password });
+      const authData = await AuthService.login({ username, contrasenia: password });
       
-      if (success) {
-        // Obtenemos los datos completos del usuario (rol, etc.)
-        const fullUser = await AuthService.getUserInfo(username);
-        login(fullUser || { usuario: username, rol: 'ADMIN' }); // Fallback por si no lo encuentra
+      if (authData) {
+        // El login ya nos devuelve todo: token, usuario y rol
+        login({ usuario: authData.usuario, rol: authData.rol as any });
         navigate('/');
       } else {
         setError('Usuario o contraseña incorrectos');
@@ -100,22 +99,6 @@ const LoginPage = () => {
               )}
             </button>
           </form>
-
-          {/* Demo Credentials Info */}
-          <div className="mt-8 pt-6 border-t border-slate-100 space-y-3">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center mb-4">Accesos de Prueba (Modo Demo)</p>
-            <div className="grid grid-cols-1 gap-2">
-              <div className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-500">ADMIN: admin / admin</span>
-              </div>
-              <div className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-500">SECRETARIA: sec_ana / 123</span>
-              </div>
-              <div className="flex justify-between items-center p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-500">ODONTÓLOGO: dr_garcia / 123</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <p className="text-center mt-8 text-slate-400 text-xs font-bold uppercase tracking-widest">

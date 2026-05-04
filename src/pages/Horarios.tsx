@@ -29,9 +29,13 @@ const HorariosPage = () => {
   };
 
   const handleEditClick = (odontologo: Odontologo) => {
-    setEditingId(odontologo.id || (odontologo as any).id_persona);
-    if (odontologo.unHorario) {
-      setEditFormData(odontologo.unHorario);
+    setEditingId(odontologo.id);
+    if (odontologo.idHorario) {
+      setEditFormData({ 
+        id_horario: odontologo.idHorario, 
+        horario_inicio: odontologo.horarioInicio || '08:00', 
+        horario_final: odontologo.horarioFinal || '12:00' 
+      });
     } else {
       // Valor por defecto si no tiene horario asignado
       setEditFormData({ id_horario: 0, horario_inicio: '08:00', horario_final: '12:00' });
@@ -41,28 +45,29 @@ const HorariosPage = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const odontologo = odontologos.find(o => (o.id || (o as any).id_persona) === editingId);
+      const odontologo = odontologos.find(o => o.id === editingId);
       if (!odontologo) return;
 
-      let horarioFinal: Horario;
+      let horarioId: number;
 
       if (editFormData.id_horario && editFormData.id_horario !== 0) {
         // ACTUALIZAR EXISTENTE
         await HorarioService.update(editFormData);
+        horarioId = editFormData.id_horario;
       } else {
-        // CREAR NUEVO Y VINCULAR
-        const newId = await HorarioService.create(editFormData);
-        const horarioFinal = { ...editFormData, id_horario: newId };
-        
-        // Actualizar el odontólogo solo con el nuevo horario (el backend mejorado hará el merge)
-        const payload = {
-          id: odontologo.id || (odontologo as any).id_persona,
-          unHorario: { id_horario: newId }
-        };
-        
-        await OdontologoService.update(payload);
+        // CREAR NUEVO
+        horarioId = await HorarioService.create(editFormData);
       }
 
+      // Enviar una versión simplificada pero válida
+      const payload: Partial<Odontologo> = {
+        ...odontologo,
+        idHorario: horarioId
+      };
+      
+      await OdontologoService.update(payload);
+
+      alert("¡Horario guardado correctamente!");
       await loadData();
       setEditingId(null);
     } catch (error) {
@@ -149,14 +154,14 @@ const HorariosPage = () => {
                   ) : (
                     <>
                       <td className="px-6 py-5">
-                        <span className="font-black text-slate-700 text-lg">{o.unHorario?.horario_inicio || '00:00'}</span>
+                        <span className="font-black text-slate-700 text-lg">{o.horarioInicio || '00:00'}</span>
                       </td>
                       <td className="px-6 py-5">
-                        <span className="font-black text-slate-700 text-lg">{o.unHorario?.horario_final || '00:00'}</span>
+                        <span className="font-black text-slate-700 text-lg">{o.horarioFinal || '00:00'}</span>
                       </td>
                       <td className="px-6 py-5 text-center">
-                        <span className={`flex items-center justify-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase ${o.unHorario ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                          <Check size={10} /> {o.unHorario ? 'ACTIVO' : 'SIN ASIGNAR'}
+                        <span className={`flex items-center justify-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase ${o.idHorario ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                          <Check size={10} /> {o.idHorario ? 'ACTIVO' : 'SIN ASIGNAR'}
                         </span>
                       </td>
                       <td className="px-6 py-5 text-right pr-8">

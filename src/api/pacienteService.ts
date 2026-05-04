@@ -10,6 +10,7 @@ export interface Paciente {
   fecha_nac: string;
   tiene_OS: boolean;
   tipoSangre: string;
+  idResponsable?: number;
 }
 
 export const PacienteService = {
@@ -27,6 +28,10 @@ export const PacienteService = {
   },
   delete: async (id: number) => {
     const response = await api.delete(`/paciente/eliminar/${id}`);
+    return response.data;
+  },
+  getById: async (id: number) => {
+    const response = await api.get<Paciente>(`/paciente/traer/${id}`);
     return response.data;
   }
 };

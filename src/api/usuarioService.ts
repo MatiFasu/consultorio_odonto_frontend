@@ -13,13 +13,14 @@ export const UsuarioService = {
     return response.data;
   },
   create: async (u: Partial<Usuario>) => {
-    console.log("Enviando nuevo usuario al backend:", u);
-    // La ruta exacta según tu UsuarioController.java es /usuario/crear
     const response = await api.post('/usuario/crear', u);
     return response.data;
   },
+  update: async (u: Partial<Usuario>) => {
+    const response = await api.put('/usuario/editar', u);
+    return response.data;
+  },
   delete: async (id: number) => {
-    // La ruta según tu backend es /usuario/borrar/{id}
     await api.delete(`/usuario/borrar/${id}`);
   }
 };
