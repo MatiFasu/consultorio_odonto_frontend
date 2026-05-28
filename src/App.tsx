@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './store/AuthContext';
+import { UIProvider } from './store/UIContext';
 import MainLayout from './layouts/MainLayout';
 import Dashboard from './pages/Dashboard';
 import PacientesPage from './pages/Pacientes';
@@ -35,27 +36,29 @@ const RoleRoute = ({ children, allowedRoles }: { children: React.ReactNode, allo
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          
-          {/* Rutas para todos los usuarios logueados (Dashboard, Pacientes, Turnos) */}
-          <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
-            <Route index element={<Dashboard />} />
-            <Route path="pacientes" element={<PacientesPage />} />
-            <Route path="turnos" element={<TurnosPage />} />
-            <Route path="notificaciones" element={<NotificacionesPage />} />
+      <UIProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
             
-            {/* Rutas solo para ADMIN (Gestión de Staff y Usuarios) */}
-            <Route path="odontologos" element={<RoleRoute allowedRoles={['ADMIN']}><OdontologosPage /></RoleRoute>} />
-            <Route path="secretarias" element={<RoleRoute allowedRoles={['ADMIN']}><SecretariasPage /></RoleRoute>} />
-            <Route path="usuarios" element={<RoleRoute allowedRoles={['ADMIN']}><UsuariosPage /></RoleRoute>} />
-            <Route path="horarios" element={<RoleRoute allowedRoles={['ADMIN']}><HorariosPage /></RoleRoute>} />
-          </Route>
-          
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </BrowserRouter>
+            {/* Rutas para todos los usuarios logueados (Dashboard, Pacientes, Turnos) */}
+            <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
+              <Route index element={<Dashboard />} />
+              <Route path="pacientes" element={<PacientesPage />} />
+              <Route path="turnos" element={<TurnosPage />} />
+              <Route path="notificaciones" element={<NotificacionesPage />} />
+              
+              {/* Rutas solo para ADMIN (Gestión de Staff y Usuarios) */}
+              <Route path="odontologos" element={<RoleRoute allowedRoles={['ADMIN']}><OdontologosPage /></RoleRoute>} />
+              <Route path="secretarias" element={<RoleRoute allowedRoles={['ADMIN']}><SecretariasPage /></RoleRoute>} />
+              <Route path="usuarios" element={<RoleRoute allowedRoles={['ADMIN']}><UsuariosPage /></RoleRoute>} />
+              <Route path="horarios" element={<RoleRoute allowedRoles={['ADMIN']}><HorariosPage /></RoleRoute>} />
+            </Route>
+            
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </BrowserRouter>
+      </UIProvider>
     </AuthProvider>
   );
 }

@@ -2,7 +2,7 @@
 // Base de Datos Local Limpia - Solo el Administrador existe por defecto
 const DEFAULT_DATA: Record<string, any> = {
   '/usuario/traer': [
-    { id_usuario: 1, usuario: 'admin', contrasenia: 'admin', rol: 'ADMIN' }
+    { id: 1, usuario: 'admin', contrasenia: 'admin', rol: 'ADMIN' }
   ],
   '/horario/traer': [],
   '/odontologo/traer': [],
@@ -41,7 +41,7 @@ export const getMockResponse = (url: string = '', method: string = 'GET', body: 
 
      if (found) {
         return { 
-          token: `mock-jwt-${found.rol}-${found.id_usuario}`, 
+          token: `mock-jwt-${found.rol}-${found.id}`, 
           usuario: found.usuario, 
           rol: found.rol 
         };
@@ -68,14 +68,12 @@ export const getMockResponse = (url: string = '', method: string = 'GET', body: 
     if (listKey) {
        const list = db[listKey];
        if (method === 'PUT' || path.includes('/editar')) {
-         const id = body.id || body.id_turno || body.id_usuario;
-         const index = list.findIndex((item: any) => (item.id || item.id_turno || item.id_usuario) === id);
+         const id = body.id;
+         const index = list.findIndex((item: any) => item.id === id);
          if (index !== -1) list[index] = { ...list[index], ...body };
        } else {
          const newId = Math.floor(Math.random() * 1000);
-         if (listKey === '/turno/traer') body.id_turno = newId; 
-         else if (listKey === '/usuario/traer') body.id_usuario = newId;
-         else body.id = newId;
+         body.id = newId;
          list.push(body);
        }
        saveDb(db);
@@ -96,7 +94,7 @@ export const getMockResponse = (url: string = '', method: string = 'GET', body: 
     if (path.includes('/usuario')) listKey = '/usuario/traer';
 
     if (listKey && !isNaN(id)) {
-       db[listKey] = db[listKey].filter((item: any) => (item.id || item.id_turno || item.id_usuario) !== id);
+       db[listKey] = db[listKey].filter((item: any) => item.id !== id);
        saveDb(db);
        return { success: true };
     }

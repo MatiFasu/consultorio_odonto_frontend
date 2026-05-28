@@ -1,4 +1,4 @@
-import api from './apiClient';
+import api, { type PaginatedResponse } from './apiClient';
 import type { Paciente } from './pacienteService';
 
 export interface ItemPresupuesto {
@@ -41,6 +41,10 @@ export const FacturacionService = {
     const response = await api.get<Presupuesto[]>(`/facturacion/presupuestos/paciente/${pacienteId}`);
     return response.data;
   },
+  getPresupuestosPaginated: async (page: number = 0, size: number = 10) => {
+    const response = await api.get<PaginatedResponse<Presupuesto>>(`/facturacion/presupuestos/traer/paginado?page=${page}&size=${size}`);
+    return response.data;
+  },
   savePresupuesto: async (p: Presupuesto) => {
     const response = await api.post<Presupuesto>('/facturacion/presupuestos/crear', p);
     return response.data;
@@ -53,6 +57,10 @@ export const FacturacionService = {
   // Pagos
   getPagos: async (pacienteId: number) => {
     const response = await api.get<Pago[]>(`/facturacion/pagos/paciente/${pacienteId}`);
+    return response.data;
+  },
+  getPagosPaginated: async (page: number = 0, size: number = 10) => {
+    const response = await api.get<PaginatedResponse<Pago>>(`/facturacion/pagos/traer/paginado?page=${page}&size=${size}`);
     return response.data;
   },
   registrarPago: async (p: Pago) => {

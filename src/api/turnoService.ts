@@ -1,7 +1,7 @@
-import api from './apiClient';
+import api, { type PaginatedResponse } from './apiClient';
 
 export interface Turno {
-  id_turno: number;
+  id: number;
   fecha_turno: string;
   hora_turno: string;
   afeccion: string;
@@ -14,6 +14,14 @@ export interface Turno {
 export const TurnoService = {
   getAll: async () => {
     const response = await api.get<Turno[]>('/turno/traer');
+    return response.data;
+  },
+  getPaginated: async (page: number = 0, size: number = 10) => {
+    const response = await api.get<PaginatedResponse<Turno>>(`/turno/traer/paginado?page=${page}&size=${size}`);
+    return response.data;
+  },
+  getByFechaPaginated: async (fecha: string, page: number = 0, size: number = 10) => {
+    const response = await api.get<PaginatedResponse<Turno>>(`/turno/traer/fecha?fecha=${fecha}&page=${page}&size=${size}`);
     return response.data;
   },
   getByOdontologo: async (odontoId: number) => {
@@ -33,6 +41,6 @@ export const TurnoService = {
     return response.data;
   },
   delete: async (id: number) => {
-    await api.delete(`/turno/borrar/${id}`);
+    await api.delete(`/turno/eliminar/${id}`);
   }
 };

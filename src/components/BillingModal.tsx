@@ -1,7 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { X, Plus, DollarSign, FileText, Trash2, Check, CreditCard, Receipt, AlertCircle, Wallet } from 'lucide-react';
-import { FacturacionService, type Presupuesto, type Pago, type EstadoCuenta, type ItemPresupuesto } from '../api/facturacionService';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { X, Plus, DollarSign, Trash2, CreditCard, Receipt, Wallet } from 'lucide-react';
+import { FacturacionService, type Presupuesto, type Pago } from '../api/facturacionService';
 import type { Paciente } from '../api/pacienteService';
+import { useUI } from '../store/UIContext';
 
 interface Props {
   paciente: Paciente;
@@ -9,104 +14,156 @@ interface Props {
   onClose: () => void;
 }
 
+// Schemas de validación
+const itemSchema = z.object({
+  descripcion: z.string().min(2, "La descripción es corta"),
+  costo: z.number().min(1, "El costo debe ser mayor a 0")
+});
+
+const presupuestoSchema = z.object({
+  items: z.array(itemSchema).min(1, "Debe añadir al menos un ítem")
+});
+
+const pagoSchema = z.object({
+  monto: z.number().min(1, "El monto debe ser mayor a 0"),
+  metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'MERCADO_PAGO']),
+  notas: z.string().optional(),
+  transaccionId: z.string().optional(),
+  idPresupuesto: z.string().optional()
+});
+
+type PresupuestoFormData = z.infer<typeof presupuestoSchema>;
+type PagoFormData = z.infer<typeof pagoSchema>;
+
 const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
+  const queryClient = useQueryClient();
+  const { toast, confirm } = useUI();
   const [tab, setTab] = useState<'balance' | 'presupuestos' | 'pagos'>('balance');
-  const [balance, setBalance] = useState<EstadoCuenta | null>(null);
-  const [presupuestos, setPresupuestos] = useState<Presupuesto[]>([]);
-  const [pagos, setPagos] = useState<Pago[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Estados para creación
   const [isAddingPresupuesto, setIsAddingPresupuesto] = useState(false);
   const [isAddingPago, setIsAddingPago] = useState(false);
-  const [newItems, setNewItems] = useState<ItemPresupuesto[]>([{ descripcion: '', costo: 0 }]);
-  const [pagoMonto, setPagoMonto] = useState('');
-  const [pagoMetodo, setPagoMetodo] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA' | 'MERCADO_PAGO'>('EFECTIVO');
-  const [pagoNotas, setPagoNotas] = useState('');
-  const [pagoTransaccionId, setPagoTransaccionId] = useState('');
-  const [selectedPresupuestoId, setSelectedPresupuestoId] = useState<string>('');
 
-  useEffect(() => {
-    if (isOpen) loadAllData();
-  }, [isOpen]);
+  // React Hook Form - Presupuesto
+  const { register: regPre, handleSubmit: handlePre, control: controlPre, reset: resetPre, formState: { errors: errPre } } = useForm<PresupuestoFormData>({
+    resolver: zodResolver(presupuestoSchema),
+    defaultValues: { items: [{ descripcion: '', costo: 0 }] }
+  });
 
-  const loadAllData = async () => {
-    setLoading(true);
-    try {
-      const pId = paciente.id;
-      const [bal, pre, pay] = await Promise.all([
-        FacturacionService.getEstadoCuenta(pId),
-        FacturacionService.getPresupuestos(pId),
-        FacturacionService.getPagos(pId)
-      ]);
-      setBalance(bal);
-      setPresupuestos(pre);
-      setPagos(pay);
-    } catch (error) {
-      console.error("Error al cargar facturación", error);
-    } finally {
-      setLoading(false);
+  const { fields, append, remove } = useFieldArray({
+    control: controlPre,
+    name: "items"
+  });
+
+  // React Hook Form - Pago
+  const { register: regPago, handleSubmit: handlePago, reset: resetPago, formState: { errors: errPago } } = useForm<PagoFormData>({
+    resolver: zodResolver(pagoSchema),
+    defaultValues: { 
+      monto: 0, 
+      metodoPago: 'EFECTIVO', 
+      notas: '', 
+      transaccionId: '', 
+      idPresupuesto: '' 
     }
-  };
+  });
 
-  const handleAddPresupuesto = async () => {
-    try {
-      const pId = paciente.id;
-      const payload: Presupuesto = {
-        fecha: new Date().toISOString(),
-        estado: 'PENDIENTE',
-        total: newItems.reduce((acc, curr) => acc + curr.costo, 0),
-        idPaciente: pId,
-        items: newItems.filter(i => i.descripcion !== '')
-      };
-      await FacturacionService.savePresupuesto(payload);
+  // Queries con React Query
+  const { data: balance, isLoading: loadingBalance } = useQuery({
+    queryKey: ['balance', paciente.id],
+    queryFn: () => FacturacionService.getEstadoCuenta(paciente.id),
+    enabled: isOpen
+  });
+
+  const { data: presupuestos = [], isLoading: loadingPresupuestos } = useQuery({
+    queryKey: ['presupuestos', paciente.id],
+    queryFn: () => FacturacionService.getPresupuestos(paciente.id),
+    enabled: isOpen
+  });
+
+  const { data: pagos = [], isLoading: loadingPagos } = useQuery({
+    queryKey: ['pagos', paciente.id],
+    queryFn: () => FacturacionService.getPagos(paciente.id),
+    enabled: isOpen
+  });
+
+  const loading = loadingBalance || loadingPresupuestos || loadingPagos;
+
+  // Mutaciones
+  const savePresupuestoMutation = useMutation({
+    mutationFn: (p: Presupuesto) => FacturacionService.savePresupuesto(p),
+    onSuccess: () => {
+      toast.success("Presupuesto guardado correctamente");
+      queryClient.invalidateQueries({ queryKey: ['presupuestos', paciente.id] });
+      queryClient.invalidateQueries({ queryKey: ['balance', paciente.id] });
       setIsAddingPresupuesto(false);
-      setNewItems([{ descripcion: '', costo: 0 }]);
-      loadAllData();
-    } catch (error) {
-      alert("Error al guardar presupuesto");
-    }
+      resetPre();
+    },
+    onError: () => toast.error("Error al guardar presupuesto")
+  });
+
+  const savePagoMutation = useMutation({
+    mutationFn: (p: Pago) => FacturacionService.registrarPago(p),
+    onSuccess: () => {
+      toast.success("Pago registrado con éxito");
+      queryClient.invalidateQueries({ queryKey: ['pagos', paciente.id] });
+      queryClient.invalidateQueries({ queryKey: ['balance', paciente.id] });
+      queryClient.invalidateQueries({ queryKey: ['presupuestos', paciente.id] });
+      setIsAddingPago(false);
+      resetPago();
+    },
+    onError: () => toast.error("Error al registrar pago")
+  });
+
+  const deletePresupuestoMutation = useMutation({
+    mutationFn: (id: number) => FacturacionService.deletePresupuesto(id),
+    onSuccess: () => {
+      toast.success("Presupuesto eliminado con éxito");
+      queryClient.invalidateQueries({ queryKey: ['presupuestos', paciente.id] });
+      queryClient.invalidateQueries({ queryKey: ['balance', paciente.id] });
+    },
+    onError: () => toast.error("Error al eliminar el presupuesto")
+  });
+
+  const onAddPresupuesto = (data: PresupuestoFormData) => {
+    const payload: Presupuesto = {
+      fecha: new Date().toISOString(),
+      estado: 'PENDIENTE',
+      total: data.items.reduce((acc, curr) => acc + curr.costo, 0),
+      idPaciente: paciente.id,
+      items: data.items
+    };
+    savePresupuestoMutation.mutate(payload);
   };
 
-  const handleAddPago = async () => {
-    try {
-      const pId = paciente.id;
-      const payload: Pago = {
-        fecha: new Date().toISOString(),
-        monto: Number(pagoMonto),
-        metodoPago: pagoMetodo,
-        notas: pagoNotas,
-        transaccionId: pagoTransaccionId,
-        idPaciente: pId,
-        idPresupuesto: selectedPresupuestoId ? Number(selectedPresupuestoId) : undefined
-      };
-      await FacturacionService.registrarPago(payload);
-      setIsAddingPago(false);
-      setPagoMonto('');
-      setPagoNotas('');
-      setPagoTransaccionId('');
-      setSelectedPresupuestoId('');
-      loadAllData();
-    } catch (error) {
-      alert("Error al registrar pago");
-    }
+  const onAddPago = (data: PagoFormData) => {
+    const payload: Pago = {
+      fecha: new Date().toISOString(),
+      monto: data.monto,
+      metodoPago: data.metodoPago,
+      notas: data.notas || '',
+      transaccionId: data.transaccionId,
+      idPaciente: paciente.id,
+      idPresupuesto: data.idPresupuesto ? Number(data.idPresupuesto) : undefined
+    };
+    savePagoMutation.mutate(payload);
   };
 
   const handleMercadoPagoLink = (presupuesto: Presupuesto) => {
     const mockUrl = `https://link.mercadopago.com.ar/dentalos/pay?amount=${presupuesto.total}&description=Presupuesto_${presupuesto.id}`;
     window.open(mockUrl, '_blank');
-    alert("Se ha generado un link de pago para el paciente. Una vez abonado, registre el ID de operación.");
+    toast.info("Se ha generado un link de pago para el paciente. Una vez abonado, registre el ID de operación.");
     setIsAddingPago(true);
     setTab('pagos');
-    setPagoMetodo('MERCADO_PAGO');
-    setPagoMonto(presupuesto.total.toString());
-    setSelectedPresupuestoId(presupuesto.id?.toString() || '');
+    resetPago({
+      monto: presupuesto.total,
+      metodoPago: 'MERCADO_PAGO',
+      idPresupuesto: presupuesto.id?.toString() || ''
+    });
   };
 
   const deletePresupuesto = async (id: number) => {
-    if (confirm("¿Eliminar este presupuesto?")) {
-      await FacturacionService.deletePresupuesto(id);
-      loadAllData();
+    if (await confirm("¿Confirmar Eliminación?", "¿Eliminar este presupuesto?")) {
+      deletePresupuestoMutation.mutate(id);
     }
   };
 
@@ -182,7 +239,7 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                       <p className="text-sm text-indigo-700 font-medium">El paciente realizó una entrega o canceló su deuda.</p>
                     </div>
                     <button 
-                      onClick={() => { setTab('pagos'); setIsAddingPago(true); }}
+                      onClick={() => { setTab('pagos'); setIsAddingPago(true); resetPago(); }}
                       className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
                     >
                       Registrar Cobro
@@ -197,7 +254,7 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Presupuestos Emitidos</h3>
                     <button 
-                      onClick={() => setIsAddingPresupuesto(true)}
+                      onClick={() => { setIsAddingPresupuesto(true); resetPre(); }}
                       className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 transition-all"
                     >
                       <Plus size={16} /> Crear Presupuesto
@@ -205,52 +262,50 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                   </div>
 
                   {isAddingPresupuesto && (
-                    <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-200 space-y-6 animate-in slide-in-from-top-4 duration-300">
+                    <form onSubmit={handlePre(onAddPresupuesto)} className="bg-slate-50 p-8 rounded-[2rem] border border-slate-200 space-y-6 animate-in slide-in-from-top-4 duration-300">
                       <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest">Nuevo Detalle de Tratamiento</h4>
                       <div className="space-y-4">
-                        {newItems.map((item, i) => (
-                          <div key={i} className="flex gap-4">
-                            <input 
-                              placeholder="Descripción del tratamiento" 
-                              className="flex-1 px-5 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
-                              value={item.descripcion}
-                              onChange={e => {
-                                const up = [...newItems];
-                                up[i].descripcion = e.target.value;
-                                setNewItems(up);
-                              }}
-                            />
-                            <div className="relative w-40">
-                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                        {fields.map((field, i) => (
+                          <div key={field.id} className="space-y-1">
+                            <div className="flex gap-4">
                               <input 
-                                type="number" 
-                                placeholder="Costo" 
-                                className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
-                                value={item.costo || ''}
-                                onChange={e => {
-                                  const up = [...newItems];
-                                  up[i].costo = Number(e.target.value);
-                                  setNewItems(up);
-                                }}
+                                placeholder="Descripción del tratamiento" 
+                                className={`flex-1 px-5 py-3 rounded-xl border ${errPre.items?.[i]?.descripcion ? 'border-rose-500' : 'border-slate-200'} outline-none focus:ring-2 focus:ring-indigo-500 font-bold`}
+                                {...regPre(`items.${i}.descripcion` as const)}
                               />
+                              <div className="relative w-40">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                <input 
+                                  type="number" 
+                                  placeholder="Costo" 
+                                  className={`w-full pl-8 pr-4 py-3 rounded-xl border ${errPre.items?.[i]?.costo ? 'border-rose-500' : 'border-slate-200'} outline-none focus:ring-2 focus:ring-indigo-500 font-bold`}
+                                  {...regPre(`items.${i}.costo` as const, { valueAsNumber: true })}
+                                />
+                              </div>
+                              {fields.length > 1 && (
+                                <button type="button" onClick={() => remove(i)} className="p-3 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={18}/></button>
+                              )}
                             </div>
-                            {i > 0 && (
-                              <button onClick={() => setNewItems(newItems.filter((_, idx) => idx !== i))} className="p-3 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={18}/></button>
+                            {(errPre.items?.[i]?.descripcion || errPre.items?.[i]?.costo) && (
+                              <p className="text-rose-500 text-[9px] font-bold ml-1">Descripción y costo son obligatorios</p>
                             )}
                           </div>
                         ))}
                         <button 
-                          onClick={() => setNewItems([...newItems, { descripcion: '', costo: 0 }])}
+                          type="button"
+                          onClick={() => append({ descripcion: '', costo: 0 })}
                           className="text-xs font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-800 ml-1"
                         >
                           + Añadir ítem
                         </button>
                       </div>
                       <div className="flex gap-3 pt-4">
-                         <button onClick={handleAddPresupuesto} className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-500/20">Guardar Presupuesto</button>
-                         <button onClick={() => setIsAddingPresupuesto(false)} className="px-8 bg-white text-slate-400 font-black text-xs uppercase tracking-widest rounded-2xl border border-slate-200">Cancelar</button>
+                         <button type="submit" disabled={savePresupuestoMutation.isPending} className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-500/20 disabled:opacity-50">
+                            {savePresupuestoMutation.isPending ? 'Guardando...' : 'Guardar Presupuesto'}
+                         </button>
+                         <button type="button" onClick={() => setIsAddingPresupuesto(false)} className="px-8 bg-white text-slate-400 font-black text-xs uppercase tracking-widest rounded-2xl border border-slate-200">Cancelar</button>
                       </div>
-                    </div>
+                    </form>
                   )}
 
                   <div className="grid grid-cols-1 gap-6">
@@ -297,6 +352,9 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                         </div>
                       </div>
                     ))}
+                    {presupuestos.length === 0 && !isAddingPresupuesto && (
+                      <div className="p-20 text-center text-slate-300 font-bold italic">No hay presupuestos emitidos.</div>
+                    )}
                   </div>
                 </div>
               )}
@@ -307,7 +365,7 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Historial de Pagos</h3>
                     <button 
-                      onClick={() => setIsAddingPago(true)}
+                      onClick={() => { setIsAddingPago(true); resetPago(); }}
                       className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 transition-all"
                     >
                       <Plus size={16} /> Registrar Cobro
@@ -315,17 +373,18 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                   </div>
 
                   {isAddingPago && (
-                    <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-4 duration-300">
+                    <form onSubmit={handlePago(onAddPago)} className="bg-slate-50 p-8 rounded-[2rem] border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-4 duration-300">
                        <div className="space-y-2">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Monto a Cobrar</label>
                          <div className="relative">
                             <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                            <input type="number" className="w-full pl-10 pr-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-black text-xl" value={pagoMonto} onChange={e => setPagoMonto(e.target.value)} />
+                            <input type="number" {...regPago('monto', { valueAsNumber: true })} className={`w-full pl-10 pr-5 py-4 rounded-2xl border ${errPago.monto ? 'border-rose-500' : 'border-slate-200'} outline-none focus:ring-2 focus:ring-emerald-500 font-black text-xl`} />
                          </div>
+                         {errPago.monto && <p className="text-rose-500 text-[10px] font-bold ml-1">{errPago.monto.message}</p>}
                        </div>
                        <div className="space-y-2">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Método de Pago</label>
-                         <select className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" value={pagoMetodo} onChange={e => setPagoMetodo(e.target.value as any)}>
+                         <select {...regPago('metodoPago')} className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold">
                             <option value="EFECTIVO">Efectivo</option>
                             <option value="TARJETA">Tarjeta (POS/Laposh)</option>
                             <option value="TRANSFERENCIA">Transferencia Bancaria</option>
@@ -334,7 +393,7 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                        </div>
                        <div className="space-y-2">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Imputar a Presupuesto (Opcional)</label>
-                         <select className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" value={selectedPresupuestoId} onChange={e => setSelectedPresupuestoId(e.target.value)}>
+                         <select {...regPago('idPresupuesto')} className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold">
                             <option value="">Saldo General (Sin presupuesto)</option>
                             {presupuestos.filter(p => p.estado !== 'FINALIZADO').map(p => (
                               <option key={p.id} value={p.id}>Presupuesto #{p.id} - ${p.total.toLocaleString()} ({new Date(p.fecha).toLocaleDateString()})</option>
@@ -343,17 +402,19 @@ const BillingModal = ({ paciente, isOpen, onClose }: Props) => {
                        </div>
                        <div className="space-y-2">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID Transacción / N° Cupón</label>
-                         <input className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" placeholder="Ej. 12345678" value={pagoTransaccionId} onChange={e => setPagoTransaccionId(e.target.value)} />
+                         <input {...regPago('transaccionId')} className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" placeholder="Ej. 12345678" />
                        </div>
                        <div className="col-span-full space-y-2">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Notas Internas</label>
-                         <input className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" placeholder="Observaciones adicionales..." value={pagoNotas} onChange={e => setPagoNotas(e.target.value)} />
+                         <input {...regPago('notas')} className="w-full px-5 py-4 rounded-2xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" placeholder="Observaciones adicionales..." />
                        </div>
                        <div className="col-span-full flex gap-3 pt-2">
-                          <button onClick={handleAddPago} className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-500/20">Registrar Pago</button>
-                          <button onClick={() => setIsAddingPago(false)} className="px-8 bg-white text-slate-400 font-black text-xs uppercase tracking-widest rounded-2xl border border-slate-200">Cancelar</button>
+                          <button type="submit" disabled={savePagoMutation.isPending} className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-500/20 disabled:opacity-50">
+                             {savePagoMutation.isPending ? 'Registrando...' : 'Registrar Pago'}
+                          </button>
+                          <button type="button" onClick={() => setIsAddingPago(false)} className="px-8 bg-white text-slate-400 font-black text-xs uppercase tracking-widest rounded-2xl border border-slate-200">Cancelar</button>
                        </div>
-                    </div>
+                    </form>
                   )}
 
                   <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden">

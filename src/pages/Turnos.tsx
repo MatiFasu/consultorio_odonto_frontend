@@ -1,11 +1,11 @@
-import { useEffect, useState, useMemo } from 'react';
-import { TurnoService } from '../api/turnoService';
-import type { Turno } from '../api/turnoService';
-import { PacienteService } from '../api/pacienteService';
-import { OdontologoService } from '../api/odontologoService';
-import { useAuth } from '../store/AuthContext';
-import { Calendar, Plus, Clock, Trash2, X, Check, Search, AlertCircle, ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, Edit, User } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useTurnos } from '../hooks/useTurnos';
+import { Calendar, Plus, Clock, Trash2, X, Check, Search, AlertCircle, ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, Edit, Sparkles, FileText } from 'lucide-react';
 import { Skeleton } from '../components/ui/Skeleton';
+import ClinicalHistoryModal from '../components/ClinicalHistoryModal';
+import { aiService } from '../api/aiService';
+import { useAuth } from '../store/AuthContext';
+import { useUI } from '../store/UIContext';
 
 const TIME_SLOTS = [
   '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', 
@@ -33,187 +33,138 @@ const TurnoSkeleton = () => (
 
 const TurnosPage = () => {
   const { user } = useAuth();
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
-  const [turnos, setTurnos] = useState<Turno[]>([]);
-  const [pacientes, setPacientes] = useState<any[]>([]);
-  const [odontologos, setOdontologos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
-  
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [searchAgenda, setSearchAgenda] = useState('');
+  const { toast } = useUI();
+  const isOdonto = user?.rol === 'ODONTOLOGO';
 
-  const [pacienteSearch, setPacienteSearch] = useState('');
-  const [selectedPaciente, setSelectedPaciente] = useState<any | null>(null);
-  const canManage = user?.rol === 'ADMIN' || user?.rol === 'SECRETARIA';
+  const {
+    turnos,
+    pacientes,
+    responsables,
+    odontologos,
+    allOdontologos,
+    loading,
+    savePending,
+    viewMode,
+    setViewMode,
+    isModalOpen,
+    setIsModalOpen,
+    isEditing,
+    selectedDate,
+    setSelectedDate,
+    searchAgenda,
+    setSearchAgenda,
+    pacienteSearch,
+    setPacienteSearch,
+    selectedPaciente,
+    setSelectedPaciente,
+    canManage,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    formMethods,
+    onFormSubmit,
+    handleEdit,
+    handleDelete,
+    resetForm,
+    changeDate,
+    formFecha,
+    formHora,
+    todayStr,
+    handlePacienteKeyDown,
+    isQuickCreatingPatient,
+    setIsQuickCreatingPatient,
+    quickCreatePatient,
+    isCreatingPatient,
+    quickCreateResponsable,
+    isCreatingResponsable
+  } = useTurnos();
 
-  const [formData, setFormData] = useState({
-    fecha_turno: todayStr,
-    hora_turno: '',
-    afeccion: '',
-    odontologoId: ''
+  const { register, handleSubmit, setValue, formState: { errors } } = formMethods;
+
+  // Estados para Atender e IA (Odontólogo)
+  const [selectedHistoryPaciente, setSelectedHistoryPaciente] = useState<any | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  const [selectedAIPacienteName, setSelectedAIPacienteName] = useState('');
+  const [isAISummaryOpen, setIsAISummaryOpen] = useState(false);
+  const [aiSummary, setAiSummary] = useState('');
+  const [loadingAI, setLoadingAI] = useState(false);
+
+  // Asegurar que el odontólogo vea siempre la vista de calendario/grilla
+  useEffect(() => {
+    if (isOdonto && viewMode !== 'calendar') {
+      setViewMode('calendar');
+    }
+  }, [isOdonto, viewMode, setViewMode]);
+
+  const handleAttendPatient = (pacienteId: number, nombreCompleto: string) => {
+    const parts = nombreCompleto.split(' ');
+    const nombre = parts[0] || '';
+    const apellido = parts.slice(1).join(' ') || '';
+    setSelectedHistoryPaciente({ id: pacienteId, nombre, apellido });
+    setIsHistoryOpen(true);
+  };
+
+  const handleAISummaryForPatient = async (pacienteId: number, nombreCompleto: string) => {
+    setSelectedAIPacienteName(nombreCompleto);
+    setLoadingAI(true);
+    setIsAISummaryOpen(true);
+    setAiSummary('');
+    try {
+      const summary = await aiService.getResumenClinico(pacienteId);
+      setAiSummary(summary);
+    } catch (error) {
+      toast.error("Error al generar resumen con IA");
+      setIsAISummaryOpen(false);
+    } finally {
+      setLoadingAI(false);
+    }
+  };
+
+  const myOdontologos = isOdonto 
+    ? allOdontologos.filter(o => o.idUsuario === user?.id)
+    : allOdontologos;
+
+  // Sincronizar buscador con el DNI del paciente seleccionado
+  useEffect(() => {
+    if (selectedPaciente) {
+        if (!pacienteSearch) setPacienteSearch(selectedPaciente.dni);
+        // CRUCIAL: Sincronizar el ID con el formulario de react-hook-form
+        setValue('idPaciente', selectedPaciente.id);
+    }
+  }, [selectedPaciente, pacienteSearch, setPacienteSearch, setValue]);
+
+  // Formulario local para el alta rápida
+  const [quickPatientData, setQuickPatientData] = useState({ 
+    nombre: '', 
+    apellido: '', 
+    telefono: '', 
+    dni: '',
+    fecha_nac: '2000-01-01',
+    tipoSangre: 'O+',
+    tiene_OS: false,
+    idResponsable: 0
   });
 
-  useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [notification]);
+  const [isRegisteringResponsable, setIsRegisteringResponsable] = useState(false);
+  const [quickRespData, setQuickRespData] = useState({ nombre: '', apellido: '', dni: '', telefono: '', tipoResponsabilidad: 'PADRE/MADRE' });
 
-  const showNotification = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type });
+  // Función para calcular edad
+  const calculateAge = (birthDate: string) => {
+    if (!birthDate) return 0;
+    const today = new Date();
+    const birth = new Date(birthDate);
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
   };
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      let tData: Turno[] = [];
-      const [pData, oData] = await Promise.all([
-        PacienteService.getAll().catch(() => []),
-        OdontologoService.getAll().catch(() => [])
-      ]);
-
-      if (user?.rol === 'ODONTOLOGO') {
-        const odonto = oData.find(o => o.idUsuario === user.id_usuario);
-        if (odonto) {
-          tData = await TurnoService.getByOdontologo(odonto.id || (odonto as any).id_persona);
-        }
-      } else {
-        tData = await TurnoService.getAll().catch(() => []);
-      }
-
-      setTurnos(tData);
-      setPacientes(pData);
-      setOdontologos(oData);
-    } catch (error) {
-      showNotification("Error al conectar con la base de datos", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { loadData(); }, [selectedDate]);
-
-  // FILTRADO DINÁMICO DE ODONTÓLOGOS DISPONIBLES
-  const odontologosDisponibles = useMemo(() => {
-    if (!formData.hora_turno || !formData.fecha_turno) return [];
-    
-    return odontologos.filter(o => {
-      // 1. Verificar si el doctor trabaja en esa hora (Horario Laboral)
-      if (!o.idHorario) return false;
-      // Necesitamos cargar el horario completo para comparar horas.
-      // Pero el DTO solo trae idHorario.
-      // Por ahora, asumiremos que si tiene horario cargado, permitimos seleccionar.
-      // O podríamos buscar el horario en una lista de horarios cargados.
-      
-      // Para mayor precisión, el backend ya hace esta validación al guardar.
-      // Aquí en frontend podemos intentar buscar el horario si tenemos la lista de horarios.
-      
-      // Si no tenemos la lista de horarios completa en este componente, 
-      // confiaremos en la validación del backend o cargaremos los horarios.
-      return true; 
-    });
-  }, [odontologos, turnos, formData.hora_turno, formData.fecha_turno, editingId]);
-
-  const handleEdit = (t: Turno) => {
-    setFormData({
-      fecha_turno: t.fecha_turno,
-      hora_turno: t.hora_turno,
-      afeccion: t.afeccion,
-      odontologoId: String(t.idOdontologo)
-    });
-    // Buscar el objeto paciente completo para el buscador
-    const p = pacientes.find(p => p.id === t.idPaciente);
-    setSelectedPaciente(p);
-    setEditingId(t.id_turno);
-    setIsEditing(true);
-    setIsModalOpen(true);
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const odontologo = odontologos.find(o => String(o.id) === String(formData.odontologoId));
-
-    if (!selectedPaciente || !odontologo) {
-      showNotification("Datos incompletos", "error");
-      return;
-    }
-
-    try {
-      const payload: Turno = {
-        id_turno: editingId || 0,
-        fecha_turno: formData.fecha_turno,
-        hora_turno: formData.hora_turno,
-        afeccion: formData.afeccion,
-        idPaciente: selectedPaciente.id,
-        idOdontologo: odontologo.id
-      };
-
-      if (isEditing) {
-        await TurnoService.update(payload);
-        showNotification("¡Cita actualizada correctamente!", "success");
-      } else {
-        await TurnoService.create(payload);
-        showNotification("¡Cita agendada correctamente!", "success");
-      }
-      
-      setTimeout(() => setIsModalOpen(false), 800);
-      resetForm();
-      loadData();
-    } catch (err: any) {
-      showNotification("Error al procesar el turno", "error");
-    }
-  };
-
-  const resetForm = () => {
-    setFormData({ fecha_turno: todayStr, hora_turno: '', afeccion: '', odontologoId: '' });
-    setSelectedPaciente(null);
-    setPacienteSearch('');
-    setIsEditing(false);
-    setEditingId(null);
-  };
-
-  const handleDelete = async (id: number) => {
-    if (confirm("¿Confirmas la cancelación del turno?")) {
-      try {
-        await TurnoService.delete(id);
-        showNotification("Cita cancelada", "success");
-        loadData();
-      } catch (error) {
-        showNotification("Error al cancelar", "error");
-      }
-    }
-  };
-
-  const turnosFiltrados = useMemo(() => {
-    return (turnos || []).filter(t => {
-      const matchesDate = t.fecha_turno === selectedDate;
-      const search = searchAgenda.toLowerCase();
-      const pName = (t.nombrePaciente || '').toLowerCase();
-      const oName = (t.nombreOdontologo || '').toLowerCase();
-      return matchesDate && (searchAgenda === '' || pName.includes(search) || oName.includes(search));
-    });
-  }, [turnos, selectedDate, searchAgenda]);
+  const isMinor = calculateAge(quickPatientData.fecha_nac) < 18;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 text-left">
       
-      {/* Notificación Flotante Superior */}
-      {notification && (
-        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-3 px-8 py-4 rounded-2xl shadow-2xl border animate-in slide-in-from-top-full duration-300 ${
-          notification.type === 'success' ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-rose-500 text-white border-rose-400'
-        }`}>
-          {notification.type === 'success' ? <Check size={20} /> : <AlertCircle size={20} />}
-          <p className="font-black text-sm uppercase tracking-widest">{notification.message}</p>
-        </div>
-      )}
-
-      {/* Control Bar */}
       <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col lg:flex-row justify-between items-center gap-6">
         <div className="flex items-center gap-5 w-full">
           <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner">
@@ -221,24 +172,22 @@ const TurnosPage = () => {
           </div>
           <div>
             <h2 className="text-2xl font-black text-slate-800 tracking-tight leading-none mb-1">Agenda Profesional</h2>
-            <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Panel de Control de Citas</p>
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Atajo: <span className="bg-slate-200 px-1 rounded text-slate-600">Alt + N</span> para nueva cita</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
-          <div className="bg-slate-100 p-1.5 rounded-2xl flex gap-1 shadow-inner">
-            <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'calendar' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><LayoutGrid size={16} /></button>
-            <button onClick={() => setViewMode('list')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'list' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><ListIcon size={16} /></button>
-          </div>
+          {!isOdonto && (
+            <div className="bg-slate-100 p-1.5 rounded-2xl flex gap-1 shadow-inner">
+              <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'calendar' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><LayoutGrid size={16} /></button>
+              <button onClick={() => setViewMode('list')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'list' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><ListIcon size={16} /></button>
+            </div>
+          )}
 
           <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl shadow-inner border border-slate-200">
-            <button onClick={() => {
-                const d = new Date(selectedDate + 'T00:00:00'); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().split('T')[0]);
-            }} className="p-2 hover:bg-white rounded-xl text-slate-400"><ChevronLeft size={20} /></button>
+            <button onClick={() => changeDate(-1)} className="p-2 hover:bg-white rounded-xl text-slate-400"><ChevronLeft size={20} /></button>
             <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent outline-none font-black text-slate-700 px-2 text-sm" />
-            <button onClick={() => {
-                const d = new Date(selectedDate + 'T00:00:00'); d.setDate(d.getDate() + 1); setSelectedDate(d.toISOString().split('T')[0]);
-            }} className="p-2 hover:bg-white rounded-xl text-slate-400"><ChevronRight size={20} /></button>
+            <button onClick={() => changeDate(1)} className="p-2 hover:bg-white rounded-xl text-slate-400"><ChevronRight size={20} /></button>
           </div>
 
           {canManage && (
@@ -249,30 +198,74 @@ const TurnosPage = () => {
         </div>
       </div>
 
-      {/* Listado / Grilla */}
+      {viewMode === 'list' && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+          <div className="relative w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar por paciente u odontólogo..." 
+              value={searchAgenda}
+              onChange={(e) => setSearchAgenda(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+            />
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
         {loading ? <div className="p-10"><TurnoSkeleton /></div> : (
           viewMode === 'list' ? (
-            <div className="divide-y divide-slate-50">
-              {turnosFiltrados.length === 0 ? <div className="p-40 text-center text-slate-300 font-bold italic">No hay turnos para hoy.</div> : (
-                turnosFiltrados.map(t => (
-                  <div key={t.id_turno} className="p-8 flex items-center gap-8 hover:bg-slate-50 transition-all">
-                    <div className="text-2xl font-black text-slate-800 w-24">{t.hora_turno}</div>
-                    <div className="flex-1 font-bold text-slate-700">{t.nombrePaciente} → <span className="text-indigo-600">Dr. {t.nombreOdontologo}</span></div>
-                    <div className="flex items-center gap-3">
-                        {canManage && <button onClick={() => handleEdit(t)} className="text-slate-300 hover:text-indigo-600"><Edit size={20}/></button>}
-                        {canManage && <button onClick={() => handleDelete(t.id_turno!)} className="text-slate-300 hover:text-rose-500"><Trash2 size={20}/></button>}
+            <>
+              <div className="divide-y divide-slate-50">
+                {turnos.length === 0 ? <div className="p-40 text-center text-slate-300 font-bold italic">No hay turnos registrados.</div> : (
+                  turnos.map(t => (
+                    <div key={t.id} className="p-8 flex items-center gap-8 hover:bg-slate-50 transition-all">
+                      <div className="w-24">
+                        <p className="text-2xl font-black text-slate-800 leading-none">{t.hora_turno}</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{t.fecha_turno}</p>
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-slate-700 text-lg">{t.nombrePaciente}</p>
+                        <p className="text-indigo-600 text-sm font-bold uppercase tracking-wider">Dr. {t.nombreOdontologo}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                          {canManage && <button onClick={() => handleEdit(t)} className="p-3 bg-slate-100 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all"><Edit size={20}/></button>}
+                          {canManage && <button onClick={() => handleDelete(t.id!)} className="p-3 bg-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all"><Trash2 size={20}/></button>}
+                      </div>
                     </div>
+                  ))
+                )}
+              </div>
+              
+              {totalPages > 1 && (
+                <div className="px-8 py-6 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
+                  <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Página <span className="text-indigo-600">{currentPage + 1}</span> de {totalPages}</p>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
+                      disabled={currentPage === 0}
+                      className="p-3 rounded-xl border border-slate-200 text-slate-400 hover:bg-white hover:text-indigo-500 disabled:opacity-30 transition-all"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                    <button 
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))}
+                      disabled={currentPage === totalPages - 1}
+                      className="p-3 rounded-xl border border-slate-200 text-slate-400 hover:bg-white hover:text-indigo-500 disabled:opacity-30 transition-all"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
                   </div>
-                ))
+                </div>
               )}
-            </div>
+            </>
           ) : (
             <div className="flex flex-col h-[700px] overflow-hidden">
               <div className="flex bg-slate-50 border-b border-slate-100 shrink-0">
                 <div className="w-24 border-r border-slate-100 p-4 flex justify-center"><Clock size={16} className="text-slate-300"/></div>
                 <div className="flex-1 flex divide-x divide-slate-100 overflow-x-auto">
-                  {odontologos.map(o => (
+                  {myOdontologos.map(o => (
                     <div key={o.id} className="flex-1 min-w-[200px] p-4 text-center font-black text-slate-700 text-xs uppercase tracking-widest truncate">DR. {o.nombre} {o.apellido}</div>
                   ))}
                 </div>
@@ -283,19 +276,59 @@ const TurnosPage = () => {
                     {TIME_SLOTS.map(t => <div key={t} className="h-20 p-2 text-right text-[11px] font-black text-slate-400">{t}</div>)}
                   </div>
                   <div className="flex-1 flex divide-x divide-slate-50 relative">
-                    {odontologos.map(o => (
+                    {myOdontologos.map(o => (
                       <div key={o.id} className="flex-1 min-w-[200px] relative divide-y divide-slate-50/50">
                         {TIME_SLOTS.map(t => <div key={t} className="h-20"></div>)}
-                        {turnosFiltrados.filter(t => t.idOdontologo === o.id).map(t => {
+                        {turnos.filter(t => t.idOdontologo === o.id).map(t => {
                           const idx = TIME_SLOTS.indexOf(t.hora_turno);
                           if (idx === -1) return null;
                           return (
-                            <div key={t.id_turno} onClick={() => canManage && handleEdit(t)} className="absolute inset-x-1 bg-indigo-600 text-white p-3 rounded-2xl shadow-lg border border-white/20 z-10 cursor-pointer hover:bg-indigo-700 transition-colors" style={{ top: `${idx * 80 + 4}px`, height: '72px' }}>
-                               <p className="text-[9px] font-black opacity-60 uppercase">Paciente</p>
-                               <p className="text-xs font-black truncate">{t.nombrePaciente}</p>
+                            <div 
+                              key={t.id} 
+                              className={`absolute inset-x-1 p-3 rounded-2xl shadow-lg border z-10 transition-all ${
+                                isOdonto 
+                                  ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-indigo-500/30' 
+                                  : 'bg-indigo-600 text-white border-white/20 cursor-pointer hover:bg-indigo-700'
+                              }`} 
+                              style={{ top: `${idx * 80 + 4}px`, height: '76px' }}
+                              onClick={() => {
+                                if (!isOdonto && canManage) handleEdit(t);
+                              }}
+                            >
+                               <div className="flex justify-between items-start">
+                                 <div>
+                                   <p className="text-[8px] font-black opacity-75 uppercase tracking-wider leading-none mb-0.5">Paciente</p>
+                                   <p className="text-xs font-black truncate max-w-[110px] leading-tight">{t.nombrePaciente}</p>
+                                 </div>
+                                 {isOdonto && (
+                                   <div className="flex items-center gap-1.5 shrink-0">
+                                     <button 
+                                       onClick={(e) => {
+                                         e.stopPropagation();
+                                         handleAISummaryForPatient(t.idPaciente, t.nombrePaciente || '');
+                                       }}
+                                       className="p-1.5 bg-white/10 hover:bg-white/25 active:scale-90 text-white rounded-lg transition-all"
+                                       title="Resumen Clínico con IA"
+                                     >
+                                       <Sparkles size={11} />
+                                     </button>
+                                     <button 
+                                       onClick={(e) => {
+                                         e.stopPropagation();
+                                         handleAttendPatient(t.idPaciente, t.nombrePaciente || '');
+                                       }}
+                                       className="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white px-2 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider shadow-md transition-all border border-emerald-400/20"
+                                       title="Atender Paciente"
+                                     >
+                                       <FileText size={10} />
+                                       Atender
+                                     </button>
+                                   </div>
+                                 )}
+                               </div>
                                <div className="flex justify-between items-center mt-1">
-                                    <p className="text-[10px] font-bold bg-white/20 w-fit px-2 rounded">{t.hora_turno}</p>
-                                    <Edit size={12} className="opacity-40" />
+                                    <p className="text-[9px] font-bold bg-white/20 w-fit px-1.5 py-0.5 rounded-md leading-none">{t.hora_turno}</p>
+                                    {!isOdonto && <Edit size={11} className="opacity-50" />}
                                </div>
                             </div>
                           );
@@ -310,88 +343,272 @@ const TurnosPage = () => {
         )}
       </div>
 
-      {/* MODAL DE CREACIÓN / EDICIÓN */}
       {isModalOpen && canManage && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col">
               <div className="p-8 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                 <h2 className="text-2xl font-black text-slate-800 tracking-tight">{isEditing ? 'Editar Turno' : 'Agendar Turno'}</h2>
+                 <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+                    {isQuickCreatingPatient ? 'Nuevo Paciente (Alta Rápida)' : isEditing ? 'Editar Turno' : 'Agendar Turno'}
+                 </h2>
                  <button onClick={() => setIsModalOpen(false)} className="p-2 rounded-xl hover:bg-slate-200 text-slate-400"><X size={24} /></button>
               </div>
-              <form onSubmit={handleSave} className="p-8 space-y-6 overflow-y-auto">
+
+              {isQuickCreatingPatient ? (
+                <div className="p-8 space-y-6">
+                    <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex items-center gap-3">
+                        <AlertCircle className="text-indigo-600" size={20} />
+                        <p className="text-xs text-indigo-700 font-bold">Llene los datos básicos para continuar con el agendamiento.</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre</label>
+                            <input type="text" value={quickPatientData.nombre} onChange={e => setQuickPatientData({...quickPatientData, nombre: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Apellido</label>
+                            <input type="text" value={quickPatientData.apellido} onChange={e => setQuickPatientData({...quickPatientData, apellido: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">DNI</label>
+                            <input type="text" value={quickPatientData.dni} onChange={e => setQuickPatientData({...quickPatientData, dni: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Teléfono</label>
+                            <input type="text" value={quickPatientData.telefono} onChange={e => setQuickPatientData({...quickPatientData, telefono: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Fec. Nacimiento</label>
+                            <input type="date" value={quickPatientData.fecha_nac} onChange={e => setQuickPatientData({...quickPatientData, fecha_nac: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Grupo Sanguíneo</label>
+                            <select value={quickPatientData.tipoSangre} onChange={e => setQuickPatientData({...quickPatientData, tipoSangre: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold">
+                                <option value="O+">O+</option>
+                                <option value="O-">O-</option>
+                                <option value="A+">A+</option>
+                                <option value="A-">A-</option>
+                                <option value="B+">B+</option>
+                                <option value="B-">B-</option>
+                                <option value="AB+">AB+</option>
+                                <option value="AB-">AB-</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {isMinor && (
+                      <div className="space-y-1 animate-in slide-in-from-top-2 duration-300">
+                        <div className="flex justify-between items-center px-1">
+                            <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Responsable Obligatorio (Menor de edad)</label>
+                            <button 
+                                type="button" 
+                                onClick={() => setIsRegisteringResponsable(!isRegisteringResponsable)}
+                                className="text-[9px] font-black text-indigo-600 uppercase hover:underline"
+                            >
+                                {isRegisteringResponsable ? '× Cancelar Registro' : '+ Nuevo Responsable'}
+                            </button>
+                        </div>
+                        
+                        {isRegisteringResponsable ? (
+                            <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-3 animate-in fade-in duration-300">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="text" placeholder="Nombre" value={quickRespData.nombre} onChange={e => setQuickRespData({...quickRespData, nombre: e.target.value})} className="px-4 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none" />
+                                    <input type="text" placeholder="Apellido" value={quickRespData.apellido} onChange={e => setQuickRespData({...quickRespData, apellido: e.target.value})} className="px-4 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="text" placeholder="DNI" value={quickRespData.dni} onChange={e => setQuickRespData({...quickRespData, dni: e.target.value})} className="px-4 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none" />
+                                    <input type="text" placeholder="Teléfono" value={quickRespData.telefono} onChange={e => setQuickRespData({...quickRespData, telefono: e.target.value})} className="px-4 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none" />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Vínculo / Responsabilidad</label>
+                                    <select value={quickRespData.tipoResponsabilidad} onChange={e => setQuickRespData({...quickRespData, tipoResponsabilidad: e.target.value})} className="w-full px-4 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none">
+                                        <option value="PADRE/MADRE">PADRE/MADRE</option>
+                                        <option value="TUTOR">TUTOR</option>
+                                        <option value="OTROS">OTROS</option>
+                                    </select>
+                                </div>
+                                <button 
+                                    type="button" 
+                                    disabled={isCreatingResponsable || !quickRespData.nombre || !quickRespData.dni || !quickRespData.telefono}
+                                    onClick={async () => {
+                                        await quickCreateResponsable(quickRespData);
+                                        setIsRegisteringResponsable(false);
+                                    }}
+                                    className="w-full py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl hover:bg-indigo-700"
+                                >
+                                    {isCreatingResponsable ? 'REGISTRANDO...' : 'CONFIRMAR RESPONSABLE'}
+                                </button>
+                            </div>
+                        ) : (
+                            <select 
+                                value={quickPatientData.idResponsable} 
+                                onChange={e => setQuickPatientData({...quickPatientData, idResponsable: Number(e.target.value)})} 
+                                className={`w-full px-5 py-3.5 bg-rose-50 border ${quickPatientData.idResponsable === 0 ? 'border-rose-300' : 'border-emerald-300'} rounded-2xl outline-none focus:ring-2 focus:ring-rose-500 font-bold text-slate-700`}
+                            >
+                                <option value={0}>Seleccionar Responsable...</option>
+                                {responsables.map(r => (
+                                    <option key={r.id} value={r.id}>{r.nombre} {r.apellido} ({r.tipoResponsabilidad})</option>
+                                ))}
+                            </select>
+                        )}
+                        {quickPatientData.idResponsable === 0 && !isRegisteringResponsable && <p className="text-[9px] text-rose-500 font-black uppercase mt-1 ml-1">* Debe asignar un tutor para continuar</p>}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <input 
+                            type="checkbox" 
+                            id="quick_os"
+                            checked={quickPatientData.tiene_OS} 
+                            onChange={e => setQuickPatientData({...quickPatientData, tiene_OS: e.target.checked})} 
+                            className="w-5 h-5 rounded-lg text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                        />
+                        <label htmlFor="quick_os" className="text-sm font-black text-slate-700 cursor-pointer">¿Tiene Obra Social / Prepaga?</label>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                        <button type="button" onClick={() => setIsQuickCreatingPatient(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black hover:bg-slate-200 transition-all">CANCELAR</button>
+                        <button 
+                            type="button" 
+                            disabled={isCreatingPatient || !quickPatientData.nombre || !quickPatientData.apellido || !quickPatientData.dni || (isMinor && quickPatientData.idResponsable === 0)}
+                            onClick={() => quickCreatePatient(quickPatientData)} 
+                            className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50"
+                        >
+                            {isCreatingPatient ? 'CREANDO...' : 'GUARDAR Y SELECCIONAR'}
+                        </button>
+                    </div>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit(onFormSubmit)} className="p-8 space-y-6 overflow-y-auto">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Fecha</label>
                     <input 
                         type="date" 
-                        required 
+                        {...register('fecha_turno')}
                         min={todayStr}
-                        value={formData.fecha_turno} 
-                        onChange={e => setFormData({...formData, fecha_turno: e.target.value})} 
-                        className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" 
+                        className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.fecha_turno ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold`} 
                     />
+                    {errors.fecha_turno && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.fecha_turno.message}</p>}
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Hora</label>
-                    <select required value={formData.hora_turno} onChange={e => setFormData({...formData, hora_turno: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold">
+                    <select 
+                      {...register('hora_turno')}
+                      className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.hora_turno ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold`}
+                    >
                       <option value="">Hora</option>
                       {TIME_SLOTS.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
+                    {errors.hora_turno && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.hora_turno.message}</p>}
                   </div>
                 </div>
 
                 <div className="relative">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Buscador de Paciente</label>
-                   {!selectedPaciente ? (
-                      <div className="relative">
-                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                         <input type="text" value={pacienteSearch} onChange={e => setPacienteSearch(e.target.value)} placeholder="DNI o Apellido..." className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
-                         {/* SUGERENCIAS */}
-                         {pacienteSearch.length > 1 && (
-                            <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-[200] max-h-48 overflow-y-auto border-t-0">
-                               {pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni}`.toLowerCase().includes(pacienteSearch.toLowerCase())).map(p => (
-                                  <div key={p.id} onClick={() => { setSelectedPaciente(p); setPacienteSearch(''); }} className="p-4 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0">
-                                     <p className="font-black text-slate-800 text-sm">{p.nombre} {p.apellido}</p>
-                                     <p className="text-[10px] text-slate-400 font-bold uppercase">DNI: {p.dni}</p>
-                                  </div>
-                               ))}
-                            </div>
-                         )}
-                      </div>
-                   ) : (
-                      <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex justify-between items-center shadow-inner">
-                         <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-[10px]">{selectedPaciente.nombre.charAt(0)}</div>
-                            <p className="font-black text-indigo-900">{selectedPaciente.nombre} {selectedPaciente.apellido}</p>
+                   
+                   <div className="relative">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input 
+                        type="text" 
+                        value={pacienteSearch} 
+                        onChange={e => !selectedPaciente && setPacienteSearch(e.target.value)} 
+                        onKeyDown={handlePacienteKeyDown}
+                        disabled={!!selectedPaciente}
+                        placeholder="DNI o Apellido... (Enter para seleccionar primero)" 
+                        className={`w-full pl-12 pr-4 py-3.5 ${selectedPaciente ? 'bg-indigo-50/50 border-indigo-200 text-indigo-900 cursor-not-allowed' : 'bg-slate-50 border-slate-200 text-slate-700'} border rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all`} 
+                      />
+                      
+                      {/* Resultados de búsqueda */}
+                      {!selectedPaciente && pacienteSearch.length > 1 && (
+                         <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-[200] max-h-48 overflow-y-auto border-t-0">
+                            {pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni}`.toLowerCase().includes(pacienteSearch.toLowerCase())).length === 0 ? (
+                                <div className="p-6 text-center space-y-3">
+                                    <p className="text-slate-400 font-bold text-sm italic">No se encontró al paciente "{pacienteSearch}"</p>
+                                    <button 
+                                     type="button" 
+                                     onClick={() => {
+                                         const isNumeric = /^\d+$/.test(pacienteSearch);
+                                         setQuickPatientData({ 
+                                             nombre: '', 
+                                             apellido: '', 
+                                             telefono: '', 
+                                             dni: isNumeric ? pacienteSearch : '',
+                                             fecha_nac: '2000-01-01',
+                                             tipoSangre: 'O+',
+                                             tiene_OS: false,
+                                             idResponsable: 0
+                                         });
+                                         setIsQuickCreatingPatient(true);
+                                     }}
+                                     className="w-full py-3 bg-indigo-50 text-indigo-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-indigo-100 transition-all"
+                                    >
+                                        + Crear Paciente Nuevo
+                                    </button>
+                                </div>
+                            ) : (
+                              pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni}`.toLowerCase().includes(pacienteSearch.toLowerCase())).map(p => (
+                                 <div key={p.id} onClick={() => { setSelectedPaciente(p); setValue('idPaciente', p.id); setPacienteSearch(p.dni); }} className="p-4 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0">
+                                    <p className="font-black text-slate-800 text-sm">{p.nombre} {p.apellido}</p>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase">DNI: {p.dni}</p>
+                                 </div>
+                              ))
+                            )}
                          </div>
-                         <button type="button" onClick={() => setSelectedPaciente(null)} className="text-indigo-400 hover:text-rose-500 transition-colors"><X size={18}/></button>
+                      )}
+                   </div>
+
+                   {errors.idPaciente && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.idPaciente.message}</p>}
+
+                   {/* Tarjeta de Confirmación de Paciente Seleccionado */}
+                   {selectedPaciente && (
+                      <div className="mt-4 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex justify-between items-center shadow-inner animate-in slide-in-from-top-2 duration-300">
+                         <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-[10px]">
+                                {selectedPaciente?.nombre?.charAt(0) || '?'}
+                            </div>
+                            <div>
+                                <p className="font-black text-indigo-900 leading-none mb-0.5">{selectedPaciente?.nombre || ''} {selectedPaciente?.apellido || ''}</p>
+                                <p className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Paciente Seleccionado</p>
+                            </div>
+                         </div>
+                         <button type="button" onClick={() => { setSelectedPaciente(null); setValue('idPaciente', 0); setPacienteSearch(''); }} className="p-2 bg-white/50 text-indigo-400 hover:text-rose-500 rounded-xl transition-all shadow-sm"><X size={18}/></button>
                       </div>
                    )}
                 </div>
 
                 <div className="space-y-1">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Profesional (Disponibles para este horario)</label>
+                   <div className="flex justify-between items-center px-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profesional</label>
+                      {formFecha && formHora && (
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${odontologos.length > 0 ? 'bg-indigo-100 text-indigo-600' : 'bg-rose-100 text-rose-600'}`}>
+                          {odontologos.length} DISPONIBLES
+                        </span>
+                      )}
+                   </div>
                    <select 
-                        required 
-                        value={formData.odontologoId} 
-                        onChange={e => setFormData({...formData, odontologoId: e.target.value})} 
-                        className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 disabled:opacity-50"
-                        disabled={!formData.fecha_turno || !formData.hora_turno}
+                        {...register('odontologoId')}
+                        className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.odontologoId ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 disabled:opacity-50`}
+                        disabled={!formFecha || !formHora}
                     >
                      <option value="">
-                        {!formData.fecha_turno || !formData.hora_turno 
+                        {!formFecha || !formHora 
                             ? "Seleccione fecha y hora primero..." 
-                            : odontologosDisponibles.length === 0 
+                            : odontologos.length === 0 
                                 ? "No hay doctores disponibles en este horario" 
                                 : "Seleccionar Odontólogo..."}
                      </option>
-                     {odontologosDisponibles.map(o => (
-                        <option key={o.id || o.id_persona} value={o.id || o.id_persona}>
+                     {odontologos.map(o => (
+                        <option key={o.id} value={o.id}>
                             Dr. {o.nombre} {o.apellido} ({o.especialidad})
                         </option>
                      ))}
                    </select>
-                   {formData.hora_turno && odontologosDisponibles.length === 0 && (
+                   {errors.odontologoId && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.odontologoId.message}</p>}
+                   {formHora && odontologos.length === 0 && (
                        <p className="text-[10px] text-rose-500 font-bold mt-1 animate-pulse">
                            <AlertCircle size={10} className="inline mr-1"/> 
                            Ningún profesional trabaja en este horario o están todos ocupados.
@@ -401,14 +618,59 @@ const TurnosPage = () => {
 
                 <div className="space-y-1">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Observaciones / Motivo</label>
-                   <textarea rows={2} required value={formData.afeccion} onChange={e => setFormData({...formData, afeccion: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="Ej: Caries molar superior derecho..."></textarea>
+                   <textarea 
+                    rows={2} 
+                    {...register('afeccion')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.afeccion ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium`} 
+                    placeholder="Ej: Caries molar superior derecho..."
+                   ></textarea>
+                   {errors.afeccion && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.afeccion.message}</p>}
                 </div>
                 
-                <button type="submit" className="w-full py-4.5 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">
-                    {isEditing ? 'GUARDAR CAMBIOS' : 'AGENDAR TURNO'}
+                <button type="submit" disabled={savePending} className="w-full py-4.5 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 shadow-xl shadow-indigo-500/20 active:scale-95 transition-all disabled:opacity-50">
+                    {savePending ? 'PROCESANDO...' : isEditing ? 'GUARDAR CAMBIOS' : 'AGENDAR TURNO'}
                 </button>
               </form>
+              )}
            </div>
+        </div>
+      )}
+      {isHistoryOpen && selectedHistoryPaciente && (
+        <ClinicalHistoryModal 
+          paciente={selectedHistoryPaciente}
+          isOpen={isHistoryOpen}
+          onClose={() => {
+            setIsHistoryOpen(false);
+            setSelectedHistoryPaciente(null);
+          }}
+        />
+      )}
+
+      {isAISummaryOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-2xl max-h-[85vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-slate-100">
+            <div className="p-8 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center">
+                  <Sparkles size={20} className="text-indigo-600" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">Resumen Clínico con IA: <span className="text-indigo-600">{selectedAIPacienteName}</span></h3>
+              </div>
+              <button onClick={() => setIsAISummaryOpen(false)} className="p-2 rounded-lg hover:bg-slate-200 text-slate-400"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-8 text-left space-y-4">
+              {loadingAI ? (
+                <div className="py-20 flex flex-col items-center justify-center gap-4">
+                  <div className="w-12 h-12 border-4 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-wider animate-pulse">Analizando Historia Clínica...</p>
+                </div>
+              ) : (
+                <div className="prose max-w-none text-slate-600 leading-relaxed whitespace-pre-line font-medium text-sm">
+                  {aiSummary}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

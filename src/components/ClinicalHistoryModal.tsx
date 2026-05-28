@@ -7,6 +7,7 @@ import { OdontologoService } from '../api/odontologoService';
 import type { Odontologo } from '../api/odontologoService';
 import { MediaService } from '../api/mediaService';
 import { useAuth } from '../store/AuthContext';
+import { useUI } from '../store/UIContext';
 import Odontograma from './Odontograma';
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
 
 const ClinicalHistoryModal = ({ paciente, isOpen, onClose }: Props) => {
   const { user } = useAuth();
+  const { toast, confirm } = useUI();
   const [historial, setHistorial] = useState<RegistroClinico[]>([]);
   const [odontologos, setOdontologos] = useState<Odontologo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,7 @@ const ClinicalHistoryModal = ({ paciente, isOpen, onClose }: Props) => {
       setOdontologos(oData);
 
       if (user?.rol === 'ODONTOLOGO' && !isEditingRecord) {
-        const currentOdonto = oData.find(o => o.idUsuario === user.id_usuario);
+        const currentOdonto = oData.find(o => o.idUsuario === user.id);
         if (currentOdonto) {
           setFormData(prev => ({ ...prev, odontologoId: String(currentOdonto.id) }));
         }
@@ -95,10 +97,12 @@ const ClinicalHistoryModal = ({ paciente, isOpen, onClose }: Props) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.odontologoId) {
+      toast.error("Debe seleccionar un odontólogo");
+      return;
+    }
     setSaving(true);
     try {
-      const selectedOdonto = odontologos.find(o => String(o.id || (o as any).id_persona) === formData.odontologoId);
-      
       const registroPayload: RegistroClinico = {
         id: editingRecordId || undefined,
         fecha: isEditingRecord ? historial.find(r => r.id === editingRecordId)?.fecha || new Date().toISOString() : new Date().toISOString(),
@@ -119,9 +123,10 @@ const ClinicalHistoryModal = ({ paciente, isOpen, onClose }: Props) => {
       }
 
       await loadData();
+      toast.success(isEditingRecord ? "Registro clínico actualizado con éxito" : "Registro clínico guardado con éxito");
       cancelForm();
     } catch (error) {
-      alert("Error al guardar el registro clínico");
+      toast.error("Error al guardar el registro clínico");
     } finally {
       setSaving(false);
     }
@@ -136,25 +141,28 @@ const ClinicalHistoryModal = ({ paciente, isOpen, onClose }: Props) => {
       diagnostico: '', 
       tratamiento: '', 
       observaciones: '', 
-      odontologoId: odontologos.find(o => o.idUsuario === user?.id_usuario)?.id?.toString() || '' 
+      odontologoId: odontologos.find(o => o.idUsuario === user?.id)?.id?.toString() || '' 
     });
     setOdontogramaData([]);
     setSelectedFiles([]);
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm("¿Eliminar este registro de la historia clínica?")) {
+    if (await confirm("¿Confirmar Eliminación?", "¿Eliminar este registro de la historia clínica?")) {
       try {
         await RegistroClinicoService.delete(id);
+        toast.success("Registro clínico eliminado con éxito");
         await loadData();
       } catch (error) {
-        alert("No se pudo eliminar el registro");
+        toast.error("No se pudo eliminar el registro");
       }
     }
   };
 
   const isOdonto = user?.rol === 'ODONTOLOGO';
   const isAdmin = user?.rol === 'ADMIN';
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-300">
@@ -219,7 +227,7 @@ const ClinicalHistoryModal = ({ paciente, isOpen, onClose }: Props) => {
                       className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all font-bold text-slate-700 appearance-none cursor-pointer"
                     >
                       <option value="">-- Selecciona odontólogo --</option>
-                      {odontologos.map(o => <option key={o.id || (o as any).id_persona} value={String(o.id || (o as any).id_persona)}>Dr. {o.nombre} {o.apellido}</option>)}
+                      {odontologos.map(o => <option key={o.id} value={String(o.id)}>Dr. {o.nombre} {o.apellido}</option>)}
                     </select>
                   </div>
                   <div className="space-y-2">

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { AuthService } from '../api/authService';
 
 interface AuthContextType {
   user: any | null;
@@ -27,9 +28,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const logout = () => {
+    AuthService.logout();
     setUser(null);
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
   };
 
   if (loading) return null;

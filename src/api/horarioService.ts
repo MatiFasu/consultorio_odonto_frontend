@@ -1,7 +1,7 @@
 import api from './apiClient';
 
 export interface Horario {
-  id_horario: number;
+  id: number;
   horario_inicio: string;
   horario_final: string;
 }
@@ -16,14 +16,14 @@ export const HorarioService = {
     return response.data;
   },
   create: async (h: Partial<Horario>) => {
-    const response = await api.post<number>('/horario/crear', h);
-    return response.data; // Retorna el ID generado
+    const response = await api.post<Horario>('/horario/crear', h);
+    return response.data;
   },
   update: async (h: Horario) => {
     const response = await api.put('/horario/editar', h);
     return response.data;
   },
   delete: async (id: number) => {
-    await api.delete(`/horario/borrar/${id}`);
+    await api.delete(`/horario/eliminar/${id}`);
   }
 };

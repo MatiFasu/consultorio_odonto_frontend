@@ -1,6 +1,4 @@
-import api from './apiClient';
-import type { Paciente } from './pacienteService';
-import type { Odontologo } from './odontologoService';
+import api, { type PaginatedResponse } from './apiClient';
 
 export interface EstadoDiente {
   id?: number;
@@ -41,8 +39,16 @@ export const RegistroClinicoService = {
     const response = await api.post<RegistroClinico>('/registro-clinico/crear', registro);
     return response.data;
   },
+  update: async (registro: RegistroClinico) => {
+    const response = await api.put('/registro-clinico/editar', registro);
+    return response.data;
+  },
   delete: async (id: number) => {
     const response = await api.delete(`/registro-clinico/eliminar/${id}`);
+    return response.data;
+  },
+  getById: async (id: number) => {
+    const response = await api.get<RegistroClinico>(`/registro-clinico/traer/${id}`);
     return response.data;
   }
 };

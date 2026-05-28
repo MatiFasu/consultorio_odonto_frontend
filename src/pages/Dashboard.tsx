@@ -3,6 +3,7 @@ import { Calendar, Clock, TrendingUp, UserCheck, Stethoscope, ChevronRight, Acti
 import { PacienteService } from '../api/pacienteService';
 import { OdontologoService } from '../api/odontologoService';
 import { TurnoService } from '../api/turnoService';
+import { DashboardService } from '../api/dashboardService';
 import { useAuth } from '../store/AuthContext';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ConfigNotificacionService, type ConfiguracionNotificacion } from '../api/configNotificacionService';
@@ -52,51 +53,61 @@ const Dashboard = () => {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [p, o, tAll, config] = await Promise.all([
-        PacienteService.getAll().catch(() => []),
-        OdontologoService.getAll().catch(() => []),
-        TurnoService.getAll().catch(() => []),
-        ConfigNotificacionService.get().catch(() => null)
-      ]);
-
+      // 1. Cargar configuración de notificaciones
+      const config = await ConfigNotificacionService.get().catch(() => null);
       setConfigNotif(config);
 
-      if (user?.rol === 'ADMIN') {
-        const sinHorario = o.filter((od: any) => !od.idHorario);
-        const sinTel = o.filter((od: any) => !od.telefono || od.telefono.length < 5);
-        setAlertasAdmin({ sinHorario, sinTel });
-      }
+      let odontoId: number | undefined = undefined;
+      let odonto: any = null;
 
-      let relevantTurnos = tAll;
-      let myTodayTurnos = 0;
-
-      if (user?.rol === 'ODONTOLOGO' && user.id_usuario) {
-        const odonto = await OdontologoService.getByUserId(user.id_usuario);
+      // 2. Si el usuario es odontólogo, obtener su perfil para su id
+      if (user?.rol === 'ODONTOLOGO' && user.id) {
+        odonto = await OdontologoService.getByUserId(user.id).catch(() => null);
         if (odonto) {
           setMyInfo(odonto);
-          const misTurnos = tAll.filter((t: any) => t.idOdontologo === odonto.id);
-          myTodayTurnos = misTurnos.filter((t: any) => t.fecha_turno === today).length;
-          relevantTurnos = misTurnos;
+          odontoId = odonto.id;
         }
       }
 
-      const hoyTurnos = relevantTurnos.filter((turno: any) => turno.fecha_turno === today);
-      
-      const weekStats = [0, 0, 0, 0, 0, 0, 0];
-      relevantTurnos.forEach((t: any) => {
-        const d = new Date(t.fecha_turno + 'T00:00:00').getDay();
-        weekStats[d]++;
-      });
+      // 3. Obtener estadísticas optimizadas desde el nuevo endpoint
+      const statsData = await DashboardService.getStats(odontoId).catch(() => ({
+        pacientes: 0,
+        odontologos: 0,
+        turnosHoy: 0,
+        misTurnosHoy: 0,
+        weeklyActivity: [0, 0, 0, 0, 0, 0, 0],
+        alertasAdmin: { sinHorario: [], sinTel: [] }
+      }));
+
+      // 4. Cargar sólo los turnos de hoy
+      let hoyTurnos: any[] = [];
+      if (user?.rol === 'ODONTOLOGO' && odontoId) {
+        const proximos = await TurnoService.getUpcomingByOdontologo(odontoId).catch(() => []);
+        hoyTurnos = proximos.filter((t: any) => t.fecha_turno === today);
+      } else {
+        const res = await TurnoService.getByFechaPaginated(today, 0, 100).catch(() => ({ content: [] }));
+        hoyTurnos = res.content || [];
+      }
+
+      // 5. Configurar alertas para administración
+      if (user?.rol === 'ADMIN') {
+        setAlertasAdmin(statsData.alertasAdmin);
+      }
+
+      // 6. Configurar la actividad semanal
+      const weekStats = statsData.weeklyActivity;
       const max = Math.max(...weekStats, 5);
       setWeeklyActivity(weekStats.map(v => (v / max) * 100));
 
+      // 7. Configurar contadores
       setStats({
-        pacientes: p.length,
-        odontologos: o.length,
-        turnosHoy: tAll.filter((t: any) => t.fecha_turno === today).length,
-        misTurnosHoy: myTodayTurnos
+        pacientes: statsData.pacientes,
+        odontologos: statsData.odontologos,
+        turnosHoy: statsData.turnosHoy,
+        misTurnosHoy: statsData.misTurnosHoy
       });
 
+      // 8. Configurar lista de turnos de hoy
       setProximosTurnos(hoyTurnos.sort((a: any, b: any) => a.hora_turno.localeCompare(b.hora_turno)));
     } catch (error) {
       console.error("Error al cargar dashboard", error);
@@ -229,7 +240,7 @@ const Dashboard = () => {
                  <p className="text-xs text-amber-700 font-medium mb-3">Los siguientes doctores no tienen horario y no pueden recibir turnos:</p>
                  <div className="flex flex-wrap gap-2">
                    {alertasAdmin.sinHorario.map((od: any) => (
-                     <span key={od.id || od.id_persona} className="px-3 py-1 bg-white/50 rounded-lg text-[10px] font-bold text-amber-800 border border-amber-200">
+                     <span key={od.id} className="px-3 py-1 bg-white/50 rounded-lg text-[10px] font-bold text-amber-800 border border-amber-200">
                        Dr. {od.apellido}
                      </span>
                    ))}
@@ -259,12 +270,26 @@ const Dashboard = () => {
   );
 
   const renderSecretariaStats = () => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
       <StatCard icon={Calendar} label="Turnos del Día" value={stats.turnosHoy} color="bg-amber-500" trend="Gestión" />
       <StatCard icon={UserCheck} label="Nuevos Pacientes" value={stats.pacientes} color="bg-blue-500" trend="Total" />
-      <div className="bg-primary-500 p-7 rounded-[2.5rem] shadow-lg shadow-primary-500/20 flex flex-col justify-center text-left text-white">
-        <p className="text-[10px] text-white/60 font-black uppercase tracking-[0.2em] mb-2">Acción Rápida</p>
-        <button onClick={() => window.location.href='/turnos'} className="bg-white text-primary-600 px-4 py-2 rounded-xl font-bold text-sm hover:bg-primary-50 transition-colors">Agendar Cita</button>
+      <div className="md:col-span-2 bg-indigo-600 p-7 rounded-[2.5rem] shadow-lg shadow-indigo-500/20 flex flex-col justify-center text-left text-white relative overflow-hidden group">
+        <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform"></div>
+        <p className="text-[10px] text-indigo-200 font-black uppercase tracking-[0.2em] mb-4">Acciones de Alta Velocidad</p>
+        <div className="flex gap-4">
+            <button 
+                onClick={() => window.location.href='/turnos?quickAdd=true'} 
+                className="flex-1 bg-white text-indigo-600 px-4 py-3 rounded-2xl font-black text-xs uppercase hover:bg-indigo-50 transition-colors shadow-sm"
+            >
+                Agendar Turno Rápido
+            </button>
+            <button 
+                onClick={() => window.location.href='/pacientes?new=true'} 
+                className="flex-1 bg-indigo-500 text-white border border-indigo-400 px-4 py-3 rounded-2xl font-black text-xs uppercase hover:bg-indigo-400 transition-colors shadow-sm"
+            >
+                Alta Rápida Paciente
+            </button>
+        </div>
       </div>
     </div>
   );

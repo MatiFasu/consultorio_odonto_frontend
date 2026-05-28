@@ -9,7 +9,7 @@ export interface AuthResponse {
   token: string;
   usuario: string;
   rol: string;
-  id_usuario: number;
+  id: number;
 }
 
 export const AuthService = {

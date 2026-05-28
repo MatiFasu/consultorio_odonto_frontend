@@ -1,7 +1,7 @@
 import api from './apiClient';
 
 export interface Usuario {
-  id_usuario?: number;
+  id?: number;
   usuario: string;
   contrasenia: string;
   rol: 'ADMIN' | 'SECRETARIA' | 'ODONTOLOGO';

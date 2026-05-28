@@ -1,77 +1,110 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { UsuarioService } from '../api/usuarioService';
 import type { Usuario } from '../api/usuarioService';
 import { Shield, UserPlus, Trash2, X, Check, Lock, UserCog, Edit } from 'lucide-react';
+import { useUI } from '../store/UIContext';
+
+// Schema de validación con Zod
+const usuarioSchema = z.object({
+  usuario: z.string().min(3, "El usuario debe tener al menos 3 caracteres").max(20),
+  contrasenia: z.string().optional().refine((val) => {
+    // Si estamos editando, puede ser vacío. Si es nuevo, debe tener al menos 4 caracteres.
+    return true; // La validación lógica se hará en el componente o con superRefine
+  }, "Contraseña inválida"),
+  rol: z.enum(['ADMIN', 'SECRETARIA', 'ODONTOLOGO'])
+}).superRefine((data, ctx) => {
+  // Validación personalizada para la contraseña (solo requerida en creación)
+  // Nota: en este componente usamos una variable externa `isEditing` que no está en el schema.
+  // Pero podemos simplificar: si viene algo, que tenga al menos 4 caracteres.
+  if (data.contrasenia && data.contrasenia.length > 0 && data.contrasenia.length < 4) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "La contraseña debe tener al menos 4 caracteres",
+      path: ["contrasenia"]
+    });
+  }
+});
+
+type UsuarioFormData = z.infer<typeof usuarioSchema>;
 
 const UsuariosPage = () => {
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { toast, confirm } = useUI();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [formData, setFormData] = useState<Partial<Usuario>>({
-    usuario: '',
-    contrasenia: '',
-    rol: 'SECRETARIA'
+  // React Hook Form
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<UsuarioFormData>({
+    resolver: zodResolver(usuarioSchema),
+    defaultValues: {
+      usuario: '',
+      contrasenia: '',
+      rol: 'SECRETARIA'
+    }
   });
 
-  useEffect(() => {
-    loadUsuarios();
-  }, []);
+  const selectedRol = watch('rol');
 
-  const loadUsuarios = async () => {
-    setLoading(true);
-    try {
-      const data = await UsuarioService.getAll();
-      setUsuarios(data);
-    } catch (error) {
-      console.error("Error al cargar usuarios", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Queries con React Query
+  const { data: usuarios = [], isLoading: loading } = useQuery({
+    queryKey: ['usuarios'],
+    queryFn: () => UsuarioService.getAll(),
+  });
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Mutaciones
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => UsuarioService.delete(id),
+    onSuccess: () => {
+      toast.success("Usuario eliminado correctamente");
+      queryClient.invalidateQueries({ queryKey: ['usuarios'] });
+    },
+    onError: () => toast.error("Error al borrar el usuario")
+  });
+
+  const onSubmit = async (data: UsuarioFormData) => {
     setSaving(true);
     try {
       if (isEditing && editingId) {
-        await UsuarioService.update({ ...formData, id_usuario: editingId });
-        alert("Usuario actualizado correctamente");
+        await UsuarioService.update({ ...data, id: editingId });
+        toast.success("Usuario actualizado correctamente");
       } else {
-        await UsuarioService.create(formData);
-        alert("Usuario creado correctamente");
+        if (!data.contrasenia || data.contrasenia.length < 4) {
+           toast.error("La contraseña es requerida para nuevos usuarios (mín. 4 caracteres)");
+           setSaving(false);
+           return;
+        }
+        await UsuarioService.create(data);
+        toast.success("Usuario creado correctamente");
       }
-      await loadUsuarios();
+      queryClient.invalidateQueries({ queryKey: ['usuarios'] });
       closeModal();
     } catch (error) {
-      alert("Error al procesar la solicitud en el servidor");
+      toast.error("Error al procesar la solicitud en el servidor");
     } finally {
       setSaving(false);
     }
   };
 
   const handleEdit = (u: Usuario) => {
-    setFormData({
+    reset({
       usuario: u.usuario,
       contrasenia: '', // No cargamos la contraseña por seguridad
-      rol: u.rol
+      rol: u.rol as any
     });
-    setEditingId(u.id_usuario!);
+    setEditingId(u.id!);
     setIsEditing(true);
     setIsModalOpen(true);
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm("¿Seguro que deseas eliminar este acceso?")) {
-      try {
-        await UsuarioService.delete(id);
-        await loadUsuarios();
-      } catch (error) {
-        alert("Error al borrar el usuario");
-      }
+    if (await confirm("¿Confirmar Eliminación?", "¿Seguro que deseas eliminar este acceso?")) {
+      deleteMutation.mutate(id);
     }
   };
 
@@ -79,7 +112,7 @@ const UsuariosPage = () => {
     setIsModalOpen(false);
     setIsEditing(false);
     setEditingId(null);
-    setFormData({ usuario: '', contrasenia: '', rol: 'SECRETARIA' });
+    reset({ usuario: '', contrasenia: '', rol: 'SECRETARIA' });
   };
 
   return (
@@ -92,7 +125,7 @@ const UsuariosPage = () => {
             <p className="text-slate-500 text-sm">Gestiona quién puede entrar al sistema.</p>
           </div>
         </div>
-        <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition-all w-full md:w-auto justify-center flex items-center gap-2">
+        <button onClick={() => { setIsModalOpen(true); setIsEditing(false); setEditingId(null); reset(); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-500/20 active:scale-95 transition-all w-full md:w-auto justify-center flex items-center gap-2">
           <UserPlus size={20} /> Nuevo Acceso
         </button>
       </div>
@@ -113,7 +146,7 @@ const UsuariosPage = () => {
               ) : usuarios.length === 0 ? (
                 <tr><td colSpan={3} className="p-20 text-center text-slate-400 italic">No hay usuarios registrados en la base de datos.</td></tr>
               ) : usuarios.map((u) => (
-                <tr key={u.id_usuario} className="hover:bg-slate-50/50 transition-colors group">
+                <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black">{u.usuario?.charAt(0).toUpperCase()}</div>
@@ -134,7 +167,7 @@ const UsuariosPage = () => {
                             <Edit size={18} />
                         </button>
                         {u.usuario !== 'admin' && (
-                        <button onClick={() => u.id_usuario && handleDelete(u.id_usuario)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
+                        <button onClick={() => u.id && handleDelete(u.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
                             <Trash2 size={18} />
                         </button>
                         )}
@@ -157,28 +190,48 @@ const UsuariosPage = () => {
               </div>
               <p className="text-slate-500 text-sm">Define las credenciales para el miembro.</p>
             </div>
-            <form onSubmit={handleSave} className="p-8 space-y-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="p-8 space-y-6">
               <div className="text-left">
                 <label className="block text-sm font-bold text-slate-700 mb-2">Nombre de Usuario</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">@</span>
-                  <input type="text" required value={formData.usuario} onChange={e => setFormData({...formData, usuario: e.target.value})} className="w-full pl-8 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="ana_garcia" />
+                  <input 
+                    type="text" 
+                    {...register('usuario')}
+                    className={`w-full pl-8 pr-4 py-3.5 bg-slate-50 border ${errors.usuario ? 'border-rose-500' : 'border-slate-200'} rounded-xl outline-none focus:ring-2 focus:ring-indigo-500`} 
+                    placeholder="ana_garcia" 
+                  />
                 </div>
+                {errors.usuario && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.usuario.message}</p>}
               </div>
               <div className="text-left">
                 <label className="block text-sm font-bold text-slate-700 mb-2">Contraseña {isEditing && '(dejar en blanco para no cambiar)'}</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input type="password" required={!isEditing} value={formData.contrasenia} onChange={e => setFormData({...formData, contrasenia: e.target.value})} className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="••••••••" />
+                  <input 
+                    type="password" 
+                    {...register('contrasenia')}
+                    className={`w-full pl-10 pr-4 py-3.5 bg-slate-50 border ${errors.contrasenia ? 'border-rose-500' : 'border-slate-200'} rounded-xl outline-none focus:ring-2 focus:ring-indigo-500`} 
+                    placeholder="••••••••" 
+                  />
                 </div>
+                {errors.contrasenia && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.contrasenia.message}</p>}
               </div>
               <div className="text-left">
                 <label className="block text-sm font-bold text-slate-700 mb-2">Rol de Usuario</label>
                 <div className="grid grid-cols-1 gap-2">
                   {['ADMIN', 'SECRETARIA', 'ODONTOLOGO'].map((r) => (
-                    <button key={r} type="button" onClick={() => setFormData({...formData, rol: r as any})} className={`px-4 py-3 rounded-xl text-left font-bold text-sm transition-all border ${formData.rol === r ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{r}</button>
+                    <button 
+                      key={r} 
+                      type="button" 
+                      onClick={() => setValue('rol', r as any)} 
+                      className={`px-4 py-3 rounded-xl text-left font-bold text-sm transition-all border ${selectedRol === r ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                    >
+                      {r}
+                    </button>
                   ))}
                 </div>
+                {errors.rol && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.rol.message}</p>}
               </div>
               <div className="pt-4 flex gap-4">
                 <button type="button" onClick={closeModal} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold">Cerrar</button>
@@ -192,12 +245,6 @@ const UsuariosPage = () => {
       )}
     </div>
   );
-
-  function resetForm() {
-    setFormData({ usuario: '', contrasenia: '', rol: 'SECRETARIA' });
-    setIsEditing(false);
-    setEditingId(null);
-  }
 };
 
 export default UsuariosPage;

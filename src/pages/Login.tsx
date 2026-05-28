@@ -22,8 +22,8 @@ const LoginPage = () => {
       const authData = await AuthService.login({ username, contrasenia: password });
       
       if (authData) {
-        // El login ya nos devuelve todo: token, usuario y rol
-        login({ usuario: authData.usuario, rol: authData.rol as any });
+        // El login ya nos devuelve todo: token, usuario, rol e id
+        login({ id: authData.id, usuario: authData.usuario, rol: authData.rol as any });
         navigate('/');
       } else {
         setError('Usuario o contraseña incorrectos');
@@ -100,7 +100,7 @@ const LoginPage = () => {
             </button>
           </form>
 
-            {/* Credenciales de prueba */}
+          {/* Credenciales de prueba */}
           <div className="mt-8 pt-6 border-t border-slate-100">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-4 text-center">Accesos de demostración</p>
             <div className="space-y-2">
@@ -110,15 +110,14 @@ const LoginPage = () => {
               </div>
               <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
                 <span className="text-xs font-bold text-slate-500">Odontólogo</span>
-                <span className="text-xs font-mono font-bold text-primary-600">dr_garcia / 123</span>
+                <span className="text-xs font-mono font-bold text-primary-600">jgarcia / 123456</span>
               </div>
               <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
                 <span className="text-xs font-bold text-slate-500">Secretaria</span>
-                <span className="text-xs font-mono font-bold text-primary-600">sec_ana / 123</span>
+                <span className="text-xs font-mono font-bold text-primary-600">alopez / 123456</span>
               </div>
             </div>
           </div>
-          
         </div>
 
         <p className="text-center mt-8 text-slate-400 text-xs font-bold uppercase tracking-widest">

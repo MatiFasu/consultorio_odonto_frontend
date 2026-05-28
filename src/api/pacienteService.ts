@@ -1,4 +1,4 @@
-import api from './apiClient';
+import api, { type PaginatedResponse } from './apiClient';
 
 export interface Paciente {
   id: number;
@@ -7,10 +7,11 @@ export interface Paciente {
   apellido: string;
   telefono: string;
   direccion: string;
-  fecha_nac: string;
+  fecha_nac: string; // Formato YYYY-MM-DD
   tiene_OS: boolean;
-  tipoSangre: string;
-  idResponsable?: number;
+  tipoSangre: 'O+' | 'O-' | 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-';
+  idResponsable?: number | null;
+  nombreResponsable?: string;
 }
 
 export const PacienteService = {
@@ -18,12 +19,16 @@ export const PacienteService = {
     const response = await api.get<Paciente[]>('/paciente/traer');
     return response.data;
   },
-  create: async (p: Partial<Paciente>) => {
-    const response = await api.post('/paciente/crear', p);
+  getPaginated: async (page: number = 0, size: number = 10) => {
+    const response = await api.get<PaginatedResponse<Paciente>>(`/paciente/traer/paginado?page=${page}&size=${size}`);
     return response.data;
   },
-  update: async (p: Partial<Paciente>) => {
-    const response = await api.put('/paciente/editar', p);
+  create: async (paciente: Partial<Paciente>) => {
+    const response = await api.post('/paciente/crear', paciente);
+    return response.data;
+  },
+  update: async (paciente: Partial<Paciente>) => {
+    const response = await api.put('/paciente/editar', paciente);
     return response.data;
   },
   delete: async (id: number) => {

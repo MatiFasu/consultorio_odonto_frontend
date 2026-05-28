@@ -1,9 +1,4 @@
-import { useEffect, useState } from 'react';
-import { OdontologoService } from '../api/odontologoService';
-import type { Odontologo } from '../api/odontologoService';
-import { UsuarioService } from '../api/usuarioService';
-import type { Usuario } from '../api/usuarioService';
-import { useAuth } from '../store/AuthContext';
+import { useOdontologos } from '../hooks/useOdontologos';
 import { Search, UserPlus, Phone, X, Check, Key, AlertCircle, Trash2, Edit3 } from 'lucide-react';
 import { Skeleton } from '../components/ui/Skeleton';
 
@@ -25,136 +20,28 @@ const OdontoCardSkeleton = () => (
 );
 
 const OdontologosPage = () => {
-  const { user } = useAuth();
-  const [odontologos, setOdontologos] = useState<Odontologo[]>([]);
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const {
+    odontologos,
+    usuariosDisponibles,
+    loading,
+    saving,
+    searchTerm,
+    setSearchTerm,
+    isModalOpen,
+    setIsModalOpen,
+    isEditing,
+    formMethods,
+    isAdmin,
+    onSubmit,
+    handleDelete,
+    openEditModal,
+    closeModal
+  } = useOdontologos();
 
-  const isAdmin = user?.rol === 'ADMIN';
-
-  const [formData, setFormData] = useState<any>({
-    nombre: '',
-    apellido: '',
-    dni: '',
-    telefono: '',
-    direccion: '',
-    fecha_nac: '',
-    especialidad: '',
-    usuarioId: ''
-  });
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const showNotification = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
-  };
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [oData, uData] = await Promise.all([
-        OdontologoService.getAll(),
-        UsuarioService.getAll()
-      ]);
-      setOdontologos(oData);
-      // Usuarios disponibles (no asignados a otros odontólogos, permitiendo el actual si editamos)
-      const idsAsignados = oData.filter(o => o.idUsuario).map(o => o.idUsuario);
-      const disponibles = uData.filter(u => !idsAsignados.includes(u.id_usuario) || (isEditing && u.id_usuario === formData.usuarioId));
-      setUsuarios(disponibles);
-    } catch (error) {
-      showNotification("Error al cargar datos", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    
-    const payload = {
-      ...formData,
-      id: editingId,
-      idUsuario: formData.usuarioId ? parseInt(formData.usuarioId) : null
-    };
-
-    try {
-      if (isEditing) {
-        await OdontologoService.update(payload);
-        showNotification("Perfil actualizado con éxito", "success");
-      } else {
-        await OdontologoService.create(payload);
-        showNotification("Especialista registrado con éxito", "success");
-      }
-      await loadData();
-      setTimeout(() => closeModal(), 800);
-    } catch (error: any) {
-      showNotification("Error al procesar la solicitud", "error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("¿Estás seguro de eliminar a este especialista?")) return;
-    try {
-      await OdontologoService.delete(id);
-      showNotification("Especialista eliminado correctamente", "success");
-      loadData();
-    } catch (error) {
-      showNotification("Error al eliminar", "error");
-    }
-  };
-
-  const openEditModal = (o: any) => {
-    setFormData({
-      nombre: o.nombre,
-      apellido: o.apellido,
-      dni: o.dni,
-      telefono: o.telefono || '',
-      direccion: o.direccion || '',
-      fecha_nac: o.fecha_nac ? o.fecha_nac.split('T')[0] : '',
-      especialidad: o.especialidad,
-      usuarioId: o.idUsuario || ''
-    });
-    setEditingId(o.id || o.id_persona);
-    setIsEditing(true);
-    setIsModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setIsEditing(false);
-    setEditingId(null);
-    setFormData({ nombre: '', apellido: '', dni: '', telefono: '', direccion: '', fecha_nac: '', especialidad: '', usuarioId: '' });
-  };
-
-  const filteredOdontologos = odontologos.filter(o => 
-    o.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    o.apellido.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.especialidad.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const { register, handleSubmit, formState: { errors } } = formMethods;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 relative pb-10">
-      
-      {notification && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border animate-in slide-in-from-right-full duration-300 ${
-          notification.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-rose-50 border-rose-100 text-rose-800'
-        }`}>
-          {notification.type === 'success' ? <Check className="text-emerald-500" /> : <AlertCircle className="text-rose-500" />}
-          <p className="font-bold text-sm">{notification.message}</p>
-        </div>
-      )}
 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
         <div className="relative w-full sm:w-96 text-left">
@@ -177,11 +64,11 @@ const OdontologosPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <><OdontoCardSkeleton /><OdontoCardSkeleton /><OdontoCardSkeleton /></>
-        ) : filteredOdontologos.length === 0 ? (
+        ) : odontologos.length === 0 ? (
           <div className="col-span-full py-20 text-center text-slate-400 font-bold italic">No se encontraron especialistas registrados...</div>
         ) : (
-          filteredOdontologos.map((o: any) => (
-            <div key={o.id || o.id_persona} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+          odontologos.map((o) => (
+            <div key={o.id} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
               <div className="h-2 bg-gradient-to-r from-primary-400 to-primary-600"></div>
               <div className="p-7 text-left">
                 <div className="flex justify-between items-start mb-5">
@@ -197,7 +84,7 @@ const OdontologosPage = () => {
                 
                 <div className="flex gap-2 mb-6">
                    <button onClick={() => openEditModal(o)} className="flex-1 py-2.5 bg-slate-50 text-slate-400 rounded-xl hover:bg-primary-50 hover:text-primary-600 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase"><Edit3 size={14}/> Editar</button>
-                   {isAdmin && <button onClick={() => handleDelete(o.id || o.id_persona)} className="py-2.5 px-4 bg-slate-50 text-slate-300 rounded-xl hover:bg-rose-50 hover:text-rose-500 transition-all"><Trash2 size={14}/></button>}
+                   {isAdmin && <button onClick={() => handleDelete(o.id)} className="py-2.5 px-4 bg-slate-50 text-slate-300 rounded-xl hover:bg-rose-50 hover:text-rose-500 transition-all"><Trash2 size={14}/></button>}
                 </div>
 
                 <div className="space-y-3 border-t border-slate-50 pt-6 mt-auto">
@@ -221,31 +108,90 @@ const OdontologosPage = () => {
               <button onClick={closeModal} className="p-2 rounded-xl hover:bg-slate-200 transition-colors text-slate-400"><X size={24} /></button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-8 space-y-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="p-8 space-y-6">
               <div className="grid grid-cols-2 gap-6 text-left">
                 <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Horario Inicio</label>
+                  <input 
+                    type="time" 
+                    {...register('horarioInicio')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.horarioInicio ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.horarioInicio && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.horarioInicio.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Horario Fin</label>
+                  <input 
+                    type="time" 
+                    {...register('horarioFinal')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.horarioFinal ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.horarioFinal && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.horarioFinal.message}</p>}
+                </div>
+
+                <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre</label>
-                  <input type="text" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all" value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
+                  <input 
+                    type="text" 
+                    {...register('nombre')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.nombre ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.nombre && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.nombre.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Apellido</label>
-                  <input type="text" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all" value={formData.apellido} onChange={e => setFormData({...formData, apellido: e.target.value})} />
+                  <input 
+                    type="text" 
+                    {...register('apellido')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.apellido ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.apellido && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.apellido.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">DNI</label>
-                  <input type="text" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} />
+                  <input 
+                    type="text" 
+                    {...register('dni')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.dni ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.dni && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.dni.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Especialidad</label>
-                  <input type="text" required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all" value={formData.especialidad} onChange={e => setFormData({...formData, especialidad: e.target.value})} />
+                  <input 
+                    type="text" 
+                    {...register('especialidad')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.especialidad ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.especialidad && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.especialidad.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Teléfono</label>
-                  <input type="text" required placeholder="+549..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} />
+                  <input 
+                    type="text" 
+                    {...register('telefono')}
+                    placeholder="+549..." 
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.telefono ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.telefono && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.telefono.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Fecha Nacimiento</label>
-                  <input type="date" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all" value={formData.fecha_nac} onChange={e => setFormData({...formData, fecha_nac: e.target.value})} />
+                  <input 
+                    type="date" 
+                    {...register('fecha_nac')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.fecha_nac ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.fecha_nac && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.fecha_nac.message}</p>}
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Dirección</label>
+                  <input 
+                    type="text" 
+                    {...register('direccion')}
+                    className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.direccion ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all`} 
+                  />
+                  {errors.direccion && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.direccion.message}</p>}
                 </div>
               </div>
 
@@ -255,12 +201,11 @@ const OdontologosPage = () => {
                   <h3 className="font-bold tracking-tight">Vincular Cuenta de Acceso</h3>
                 </div>
                 <select 
+                  {...register('usuarioId')}
                   className="w-full px-5 py-3.5 bg-white border border-primary-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary-500 font-bold text-slate-700 cursor-pointer"
-                  value={formData.usuarioId}
-                  onChange={e => setFormData({...formData, usuarioId: e.target.value})}
                 >
                   <option value="">-- Sin cuenta asignada --</option>
-                  {usuarios.map(u => <option key={u.id_usuario} value={u.id_usuario}>@{u.usuario} ({u.rol})</option>)}
+                  {usuariosDisponibles.map(u => <option key={u.id} value={u.id}>@{u.usuario} ({u.rol})</option>)}
                 </select>
               </div>
 
