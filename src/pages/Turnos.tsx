@@ -1,17 +1,11 @@
-import { useState, useEffect } from 'react';
-import { useTurnos } from '../hooks/useTurnos';
-import { Calendar, Plus, Clock, Trash2, X, Check, Search, AlertCircle, ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, Edit, Sparkles, FileText } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { useTurnos, TIME_SLOTS } from '../hooks/useTurnos';
+import { Calendar, Plus, Clock, Trash2, X, Check, Search, AlertCircle, ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, Edit, Sparkles, FileText, Lock } from 'lucide-react';
 import { Skeleton } from '../components/ui/Skeleton';
 import ClinicalHistoryModal from '../components/ClinicalHistoryModal';
 import { aiService } from '../api/aiService';
 import { useAuth } from '../store/AuthContext';
 import { useUI } from '../store/UIContext';
-
-const TIME_SLOTS = [
-  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', 
-  '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', 
-  '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00'
-];
 
 const TurnoSkeleton = () => (
   <div className="p-6 flex flex-col md:flex-row items-center gap-6 border-b border-slate-50">
@@ -42,6 +36,9 @@ const TurnosPage = () => {
     responsables,
     odontologos,
     allOdontologos,
+    timeSlots,
+    isNewPatient,
+    lastTurno,
     loading,
     savePending,
     viewMode,
@@ -79,7 +76,7 @@ const TurnosPage = () => {
     isCreatingResponsable
   } = useTurnos();
 
-  const { register, handleSubmit, setValue, formState: { errors } } = formMethods;
+  const { register, handleSubmit, setValue, watch, formState: { errors } } = formMethods;
 
   // Estados para Atender e IA (Odontólogo)
   const [selectedHistoryPaciente, setSelectedHistoryPaciente] = useState<any | null>(null);
@@ -89,6 +86,8 @@ const TurnosPage = () => {
   const [isAISummaryOpen, setIsAISummaryOpen] = useState(false);
   const [aiSummary, setAiSummary] = useState('');
   const [loadingAI, setLoadingAI] = useState(false);
+
+
 
   // Asegurar que el odontólogo vea siempre la vista de calendario/grilla
   useEffect(() => {
@@ -186,7 +185,7 @@ const TurnosPage = () => {
 
           <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl shadow-inner border border-slate-200">
             <button onClick={() => changeDate(-1)} className="p-2 hover:bg-white rounded-xl text-slate-400"><ChevronLeft size={20} /></button>
-            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent outline-none font-black text-slate-700 px-2 text-sm" />
+            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-[145px] bg-transparent outline-none font-black text-slate-700 px-2 text-sm text-center" />
             <button onClick={() => changeDate(1)} className="p-2 hover:bg-white rounded-xl text-slate-400"><ChevronRight size={20} /></button>
           </div>
 
@@ -222,7 +221,7 @@ const TurnosPage = () => {
                   turnos.map(t => (
                     <div key={t.id} className="p-8 flex items-center gap-8 hover:bg-slate-50 transition-all">
                       <div className="w-24">
-                        <p className="text-2xl font-black text-slate-800 leading-none">{t.hora_turno}</p>
+                        <p className="text-2xl font-black text-slate-800 leading-none">{t.hora_turno?.substring(0, 5)}</p>
                         <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{t.fecha_turno}</p>
                       </div>
                       <div className="flex-1">
@@ -280,7 +279,7 @@ const TurnosPage = () => {
                       <div key={o.id} className="flex-1 min-w-[200px] relative divide-y divide-slate-50/50">
                         {TIME_SLOTS.map(t => <div key={t} className="h-20"></div>)}
                         {turnos.filter(t => t.idOdontologo === o.id).map(t => {
-                          const idx = TIME_SLOTS.indexOf(t.hora_turno);
+                          const idx = TIME_SLOTS.indexOf(t.hora_turno?.substring(0, 5));
                           if (idx === -1) return null;
                           return (
                             <div 
@@ -327,7 +326,7 @@ const TurnosPage = () => {
                                  )}
                                </div>
                                <div className="flex justify-between items-center mt-1">
-                                    <p className="text-[9px] font-bold bg-white/20 w-fit px-1.5 py-0.5 rounded-md leading-none">{t.hora_turno}</p>
+                                    <p className="text-[9px] font-bold bg-white/20 w-fit px-1.5 py-0.5 rounded-md leading-none">{t.hora_turno?.substring(0, 5)}</p>
                                     {!isOdonto && <Edit size={11} className="opacity-50" />}
                                </div>
                             </div>
@@ -345,7 +344,7 @@ const TurnosPage = () => {
 
       {isModalOpen && canManage && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col">
+           <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
               <div className="p-8 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
                  <h2 className="text-2xl font-black text-slate-800 tracking-tight">
                     {isQuickCreatingPatient ? 'Nuevo Paciente (Alta Rápida)' : isEditing ? 'Editar Turno' : 'Agendar Turno'}
@@ -483,7 +482,7 @@ const TurnosPage = () => {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit(onFormSubmit)} className="p-8 space-y-6 overflow-y-auto">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Fecha</label>
                     <input 
@@ -495,16 +494,84 @@ const TurnosPage = () => {
                     {errors.fecha_turno && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.fecha_turno.message}</p>}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Hora</label>
-                    <select 
-                      {...register('hora_turno')}
-                      className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.hora_turno ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold`}
-                    >
-                      <option value="">Hora</option>
-                      {TIME_SLOTS.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    {errors.hora_turno && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.hora_turno.message}</p>}
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Profesional</label>
+                     <select 
+                          {...register('odontologoId')}
+                          className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.odontologoId ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700`}
+                      >
+                        <option value="">[Asignación Automática por el Sistema]</option>
+                       {odontologos.map(o => (
+                          <option key={o.id} value={o.id}>
+                              Dr. {o.nombre} {o.apellido} ({o.especialidad})
+                          </option>
+                       ))}
+                     </select>
+                     {errors.odontologoId && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.odontologoId.message}</p>}
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Horario disponible</label>
+                   
+                   {/* Input oculto para que react-hook-form lo registre y valide */}
+                   <input type="hidden" {...register('hora_turno')} />
+
+                   {!formFecha ? (
+                      <div className="p-8 border-2 border-dashed border-slate-200 rounded-3xl text-center bg-slate-50/50">
+                        <Clock className="mx-auto text-slate-300 mb-2 animate-pulse" size={24} />
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                          Seleccione una fecha para ver horarios
+                        </p>
+                      </div>
+                    ) : (
+                     <div className="space-y-3">
+                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-56 overflow-y-auto p-1 custom-scrollbar">
+                         {timeSlots.map((slot: any) => {
+                           let btnClass = "";
+                           let label: React.ReactNode = slot.time;
+                           let disabled = false;
+                           let icon = null;
+
+                           if (!slot.isWithinHours) {
+                             btnClass = "bg-slate-50 border border-slate-100 text-slate-300 cursor-not-allowed text-[10px] opacity-60";
+                             disabled = true;
+                             label = `${slot.time} (Fuera Jornada)`;
+                           } else if (slot.isOccupied) {
+                             btnClass = "bg-rose-50 border border-rose-100 text-rose-400 cursor-not-allowed flex flex-col items-center justify-center py-1.5 px-2";
+                             disabled = true;
+                             icon = <Lock size={10} className="mb-0.5" />;
+                             label = (
+                               <div className="text-center w-full truncate">
+                                 <p className="text-xs font-black leading-none">{slot.time}</p>
+                                 <p className="text-[8px] font-bold opacity-80 mt-0.5 truncate max-w-full" title={slot.occupiedBy || 'Ocupado'}>
+                                   {slot.occupiedBy || 'Ocupado'}
+                                 </p>
+                               </div>
+                             );
+                           } else if (formHora === slot.time) {
+                             btnClass = "bg-indigo-600 border border-indigo-500 text-white font-black scale-95 shadow-md shadow-indigo-500/20";
+                             icon = <Check size={12} className="inline mr-1" />;
+                           } else {
+                             btnClass = "bg-white border border-slate-200 text-slate-700 hover:border-indigo-500 hover:text-indigo-600 hover:scale-105 active:scale-95 transition-all cursor-pointer font-bold";
+                           }
+
+                           return (
+                             <button
+                               key={slot.time}
+                               type="button"
+                               disabled={disabled}
+                               onClick={() => setValue('hora_turno', slot.time, { shouldValidate: true })}
+                               className={`py-3 px-3 rounded-2xl text-xs flex items-center justify-center transition-all min-h-[46px] ${btnClass}`}
+                             >
+                               {icon}
+                               {label}
+                             </button>
+                           );
+                         })}
+                       </div>
+                       {errors.hora_turno && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.hora_turno.message}</p>}
+                     </div>
+                   )}
                 </div>
 
                 <div className="relative">
@@ -563,57 +630,44 @@ const TurnosPage = () => {
 
                    {errors.idPaciente && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.idPaciente.message}</p>}
 
-                   {/* Tarjeta de Confirmación de Paciente Seleccionado */}
-                   {selectedPaciente && (
-                      <div className="mt-4 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex justify-between items-center shadow-inner animate-in slide-in-from-top-2 duration-300">
-                         <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-[10px]">
-                                {selectedPaciente?.nombre?.charAt(0) || '?'}
-                            </div>
-                            <div>
-                                <p className="font-black text-indigo-900 leading-none mb-0.5">{selectedPaciente?.nombre || ''} {selectedPaciente?.apellido || ''}</p>
-                                <p className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Paciente Seleccionado</p>
-                            </div>
-                         </div>
-                         <button type="button" onClick={() => { setSelectedPaciente(null); setValue('idPaciente', 0); setPacienteSearch(''); }} className="p-2 bg-white/50 text-indigo-400 hover:text-rose-500 rounded-xl transition-all shadow-sm"><X size={18}/></button>
-                      </div>
-                   )}
-                </div>
+                    {/* Tarjeta de Confirmación de Paciente Seleccionado */}
+                    {selectedPaciente && (
+                       <div className="mt-4 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex justify-between items-center shadow-inner animate-in slide-in-from-top-2 duration-300">
+                          <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-[10px]">
+                                 {selectedPaciente?.nombre?.charAt(0) || '?'}
+                             </div>
+                             <div>
+                                 <p className="font-black text-indigo-900 leading-none mb-0.5">{selectedPaciente?.nombre || ''} {selectedPaciente?.apellido || ''}</p>
+                                 <div className="flex items-center gap-2 mt-0.5">
+                                   <span className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Paciente Seleccionado</span>
+                                   {isNewPatient ? (
+                                     <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider">✨ PACIENTE NUEVO</span>
+                                   ) : (
+                                     <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider">🔄 RECURRENTE</span>
+                                   )}
+                                 </div>
+                             </div>
+                          </div>
+                          <button type="button" onClick={() => { setSelectedPaciente(null); setValue('idPaciente', 0); setPacienteSearch(''); }} className="p-2 bg-white/50 text-indigo-400 hover:text-rose-500 rounded-xl transition-all shadow-sm"><X size={18}/></button>
+                       </div>
+                    )}
 
-                <div className="space-y-1">
-                   <div className="flex justify-between items-center px-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profesional</label>
-                      {formFecha && formHora && (
-                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${odontologos.length > 0 ? 'bg-indigo-100 text-indigo-600' : 'bg-rose-100 text-rose-600'}`}>
-                          {odontologos.length} DISPONIBLES
-                        </span>
-                      )}
-                   </div>
-                   <select 
-                        {...register('odontologoId')}
-                        className={`w-full px-5 py-3.5 bg-slate-50 border ${errors.odontologoId ? 'border-rose-500' : 'border-slate-200'} rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 disabled:opacity-50`}
-                        disabled={!formFecha || !formHora}
-                    >
-                     <option value="">
-                        {!formFecha || !formHora 
-                            ? "Seleccione fecha y hora primero..." 
-                            : odontologos.length === 0 
-                                ? "No hay doctores disponibles en este horario" 
-                                : "Seleccionar Odontólogo..."}
-                     </option>
-                     {odontologos.map(o => (
-                        <option key={o.id} value={o.id}>
-                            Dr. {o.nombre} {o.apellido} ({o.especialidad})
-                        </option>
-                     ))}
-                   </select>
-                   {errors.odontologoId && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1">{errors.odontologoId.message}</p>}
-                   {formHora && odontologos.length === 0 && (
-                       <p className="text-[10px] text-rose-500 font-bold mt-1 animate-pulse">
-                           <AlertCircle size={10} className="inline mr-1"/> 
-                           Ningún profesional trabaja en este horario o están todos ocupados.
-                       </p>
-                   )}
+                    {/* Indicador de Paciente Recurrente */}
+                    {selectedPaciente && !isNewPatient && !isEditing && lastTurno && (
+                       <div className="mt-4 p-4.5 bg-emerald-50 border border-emerald-100 rounded-3xl flex items-start gap-3 shadow-sm animate-in slide-in-from-top-2 duration-300 text-left">
+                          <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                             <Check size={18} />
+                          </div>
+                          <div>
+                             <p className="text-[10px] font-black text-emerald-850 uppercase tracking-widest leading-none mb-1">Paciente Recurrente</p>
+                             <p className="text-xs font-bold text-emerald-700 leading-tight">
+                                El paciente ya se atiende con: <strong className="font-extrabold">Dr. {lastTurno.nombreOdontologo || ''}</strong>. 
+                                Se pre-seleccionó su odontólogo habitual.
+                             </p>
+                          </div>
+                       </div>
+                    )}
                 </div>
 
                 <div className="space-y-1">

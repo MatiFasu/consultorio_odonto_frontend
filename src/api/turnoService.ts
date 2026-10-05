@@ -32,6 +32,10 @@ export const TurnoService = {
     const response = await api.get<Turno[]>(`/turno/odontologo/${odontoId}/proximos`);
     return response.data;
   },
+  getByPaciente: async (pacienteId: number) => {
+    const response = await api.get<Turno[]>(`/turno/paciente/${pacienteId}`);
+    return response.data;
+  },
   create: async (t: Partial<Turno>) => {
     const response = await api.post('/turno/crear', t);
     return response.data;

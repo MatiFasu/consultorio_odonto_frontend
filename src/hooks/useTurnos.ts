@@ -15,11 +15,17 @@ export const turnoSchema = z.object({
   fecha_turno: z.string().min(1, "La fecha es obligatoria"),
   hora_turno: z.string().min(1, "La hora es obligatoria"),
   afeccion: z.string().min(3, "Indique el motivo de la consulta (mín. 3 caracteres)").max(255),
-  odontologoId: z.string().min(1, "Debe seleccionar un profesional"),
+  odontologoId: z.string().optional(),
   idPaciente: z.number().min(1, "Debe seleccionar un paciente")
 });
 
 export type TurnoFormData = z.infer<typeof turnoSchema>;
+
+export const TIME_SLOTS = [
+  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', 
+  '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', 
+  '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00'
+];
 
 export const useTurnos = () => {
   const { user } = useAuth();
@@ -58,28 +64,48 @@ export const useTurnos = () => {
   const { reset, watch, setValue, setFocus } = formMethods;
   const formFecha = watch('fecha_turno');
   const formHora = watch('hora_turno');
+  const formOdontologoId = watch('odontologoId');
+  const formPacienteId = watch('idPaciente');
 
-  // Lógica de Smart Defaults para la hora
+  const [lastSelectedPatientId, setLastSelectedPatientId] = useState<number | null>(null);
+
+  // Consulta de historial de turnos del paciente seleccionado
+  const { data: turnosPaciente = [] } = useQuery({
+    queryKey: ['turnos-paciente', formPacienteId],
+    queryFn: async () => {
+      if (!formPacienteId) return [];
+      return await TurnoService.getByPaciente(formPacienteId);
+    },
+    enabled: !!formPacienteId && isModalOpen
+  });
+
+  // Determinar el último turno y odontólogo asociado
+  const lastTurno = useMemo(() => {
+    if (turnosPaciente.length === 0) return null;
+    return [...turnosPaciente].sort((a, b) => {
+      const dateDiff = new Date(b.fecha_turno + 'T00:00:00').getTime() - new Date(a.fecha_turno + 'T00:00:00').getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return (b.hora_turno || '').localeCompare(a.hora_turno || '');
+    })[0];
+  }, [turnosPaciente]);
+
+  const isNewPatient = formPacienteId > 0 && turnosPaciente.length === 0;
+
+  // Auto-seleccionar odontólogo habitual en pacientes recurrentes (solo una vez para evitar bucles/multiples avisos)
   useEffect(() => {
-    if (isModalOpen && !isEditing && !formHora) {
-      const ahora = new Date();
-      const mins = ahora.getMinutes();
-      const horas = ahora.getHours();
-      
-      // Redondear a la siguiente media hora
-      let sugeridaH = horas;
-      let sugeridaM = mins < 30 ? 30 : 0;
-      if (sugeridaM === 0) sugeridaH += 1;
-      
-      const horaStr = `${String(sugeridaH).padStart(2, '0')}:${String(sugeridaM).padStart(2, '0')}`;
-      // Solo sugerir si está dentro de un rango razonable (ej 08:00 a 20:00)
-      if (sugeridaH >= 8 && sugeridaH < 20) {
-        setValue('hora_turno', horaStr);
-      } else {
-        setValue('hora_turno', '08:00');
-      }
+    if (isModalOpen && !isEditing && lastTurno && lastTurno.idOdontologo && formPacienteId !== lastSelectedPatientId) {
+      setValue('odontologoId', String(lastTurno.idOdontologo));
+      setLastSelectedPatientId(formPacienteId);
+      toast.info(`Paciente recurrente. Se pre-seleccionó su odontólogo habitual: Dr. ${lastTurno.nombreOdontologo || ''}`);
     }
-  }, [isModalOpen, isEditing, setValue, formHora]);
+  }, [lastTurno, isModalOpen, isEditing, formPacienteId, lastSelectedPatientId, setValue, toast]);
+
+  // Limpiar estados cuando el modal se cierra
+  useEffect(() => {
+    if (!isModalOpen) {
+      setLastSelectedPatientId(null);
+    }
+  }, [isModalOpen]);
 
   // Atajos de teclado globales
   useEffect(() => {
@@ -193,6 +219,8 @@ export const useTurnos = () => {
     queryFn: () => OdontologoService.getAll(),
   });
 
+
+
   const { data: turnosData, isLoading: loading } = useQuery({
     queryKey: ['turnos', user?.rol, user?.id, currentPage, pageSize, viewMode, selectedDate],
     queryFn: async () => {
@@ -208,7 +236,7 @@ export const useTurnos = () => {
         if (viewMode === 'calendar') {
           return await TurnoService.getByFechaPaginated(selectedDate, 0, 100);
         }
-        return await TurnoService.getPaginated(currentPage, pageSize);
+        return await TurnoService.getByFechaPaginated(selectedDate, currentPage, pageSize);
       }
     },
     enabled: !!user && (user.rol !== 'ODONTOLOGO' || odontologos.length > 0)
@@ -259,13 +287,39 @@ export const useTurnos = () => {
   };
 
   const onFormSubmit = (data: TurnoFormData) => {
+    let finalOdontoId = data.odontologoId;
+
+    // Si es un paciente nuevo o no se seleccionó odontólogo manualmente, el sistema preselecciona automáticamente
+    if (!finalOdontoId) {
+      // Encontrar el primer profesional libre a esa hora sin ninguna regla de especialidad
+      const freeOdonto = odontologos.find(o => {
+        const works = o.horarioInicio && o.horarioFinal && data.hora_turno >= o.horarioInicio && data.hora_turno < o.horarioFinal;
+        if (!works) return false;
+
+        const occupied = turnosOcupados.some(t => 
+          t.idOdontologo === o.id &&
+          t.hora_turno?.substring(0, 5) === data.hora_turno &&
+          (!isEditing || t.id !== editingId)
+        );
+        return !occupied;
+      });
+
+      if (!freeOdonto) {
+        toast.error("No hay ningún profesional disponible en el horario seleccionado.");
+        return;
+      }
+
+      finalOdontoId = String(freeOdonto.id);
+      toast.info(`Asignado automáticamente: Dr. ${freeOdonto.nombre} ${freeOdonto.apellido}`);
+    }
+
     const payload: Turno = {
       id: editingId || 0,
       fecha_turno: data.fecha_turno,
       hora_turno: data.hora_turno,
       afeccion: data.afeccion,
       idPaciente: data.idPaciente,
-      idOdontologo: Number(data.odontologoId)
+      idOdontologo: Number(finalOdontoId)
     };
 
     saveMutation.mutate(payload);
@@ -284,6 +338,7 @@ export const useTurnos = () => {
     setIsEditing(false);
     setEditingId(null);
     setIsQuickCreatingPatient(false);
+    setLastSelectedPatientId(null);
   };
 
   const handleDelete = async (id: number) => {
@@ -312,39 +367,90 @@ export const useTurnos = () => {
     enabled: !!formFecha && isModalOpen
   });
 
-  const odontologosDisponibles = useMemo(() => {
-    if (!formHora || !formFecha) return [];
+  // Grilla de horarios con estado detallado para el profesional seleccionado o cálculo general para asignación automática
+  const timeSlotsWithStatus = useMemo(() => {
+    if (!formFecha) return [];
     
-    return odontologos.filter(o => {
-      // 1. Validar si el odontólogo tiene horario configurado
-      if (!o.horarioInicio || !o.horarioFinal) return false;
+    if (formOdontologoId) {
+      const odontoIdNum = Number(formOdontologoId);
+      const selectedOdonto = odontologos.find(o => o.id === odontoIdNum);
+      if (!selectedOdonto) return [];
 
-      // 2. Validar si la hora seleccionada está dentro de su jornada laboral
-      // Usamos comparación de strings ya que el formato es HH:mm (08:00, 08:30, etc)
-      const trabajaEnEsaHora = formHora >= o.horarioInicio && formHora < o.horarioFinal;
-      if (!trabajaEnEsaHora) return false;
+      return TIME_SLOTS.map(slot => {
+        let isWithinHours = false;
+        if (selectedOdonto.horarioInicio && selectedOdonto.horarioFinal) {
+          isWithinHours = slot >= selectedOdonto.horarioInicio && slot < selectedOdonto.horarioFinal;
+        }
 
-      // 3. Validar si ya tiene un turno agendado a esa misma hora
-      const yaOcupado = turnosOcupados.some(t => 
-        t.idOdontologo === o.id && 
-        t.hora_turno === formHora &&
-        (!isEditing || t.id !== editingId)
+        const turnoOcupante = turnosOcupados.find(t => 
+          t.idOdontologo === selectedOdonto.id &&
+          t.hora_turno?.substring(0, 5) === slot &&
+          (!isEditing || t.id !== editingId)
+        );
+
+        const isOccupied = !!turnoOcupante;
+
+        return {
+          time: slot,
+          isWithinHours,
+          isOccupied,
+          occupiedBy: isOccupied ? turnoOcupante.nombrePaciente : null,
+          isCurrentSelection: formHora === slot
+        };
+      });
+    }
+
+    // Si no hay profesional seleccionado (Asignación Automática), evaluamos la disponibilidad colectiva general
+    return TIME_SLOTS.map(slot => {
+      // Encontrar profesionales que trabajan a esta hora y están libres
+      const freeOdontos = odontologos.filter(o => {
+        const works = o.horarioInicio && o.horarioFinal && slot >= o.horarioInicio && slot < o.horarioFinal;
+        if (!works) return false;
+
+        const occupied = turnosOcupados.some(t => 
+          t.idOdontologo === o.id &&
+          t.hora_turno?.substring(0, 5) === slot &&
+          (!isEditing || t.id !== editingId)
+        );
+        return !occupied;
+      });
+
+      const hasAnyFree = freeOdontos.length > 0;
+      const hasAnyWorking = odontologos.some(o => 
+        o.horarioInicio && o.horarioFinal && slot >= o.horarioInicio && slot < o.horarioFinal
       );
 
-      return !yaOcupado;
+      return {
+        time: slot,
+        isWithinHours: hasAnyWorking,
+        isOccupied: hasAnyWorking && !hasAnyFree,
+        occupiedBy: (hasAnyWorking && !hasAnyFree) ? "Todos ocupados" : null,
+        isCurrentSelection: formHora === slot
+      };
     });
-  }, [odontologos, turnosOcupados, formHora, formFecha, isEditing, editingId]);
+  }, [formFecha, formOdontologoId, formHora, odontologos, turnosOcupados, isEditing, editingId]);
 
-  // Si el odontólogo seleccionado deja de estar disponible, limpiar selección
+  // Si cambia la fecha o el odontólogo, limpiar la hora si deja de estar disponible
   useEffect(() => {
-    const selectedId = watch('odontologoId');
-    if (selectedId && odontologosDisponibles.length > 0) {
-      const isStillAvailable = odontologosDisponibles.some(o => String(o.id) === selectedId);
-      if (!isStillAvailable && !isEditing) {
-        setValue('odontologoId', '');
+    if (isModalOpen && formHora && formOdontologoId) {
+      const odontoIdNum = Number(formOdontologoId);
+      const selectedOdonto = odontologos.find(o => o.id === odontoIdNum);
+      if (selectedOdonto) {
+        const isWithinHours = selectedOdonto.horarioInicio && selectedOdonto.horarioFinal &&
+          formHora >= selectedOdonto.horarioInicio && formHora < selectedOdonto.horarioFinal;
+        
+        const isOccupied = turnosOcupados.some(t =>
+          t.idOdontologo === selectedOdonto.id &&
+          t.hora_turno?.substring(0, 5) === formHora &&
+          (!isEditing || t.id !== editingId)
+        );
+
+        if (!isWithinHours || isOccupied) {
+          setValue('hora_turno', '');
+        }
       }
     }
-  }, [odontologosDisponibles, setValue, watch, isEditing]);
+  }, [formFecha, formOdontologoId, isModalOpen, turnosOcupados, isEditing, editingId, setValue, odontologos]);
 
   const changeDate = (days: number) => {
       const d = new Date(selectedDate + 'T00:00:00');
@@ -356,8 +462,11 @@ export const useTurnos = () => {
     turnos: turnosFiltrados,
     pacientes,
     responsables,
-    odontologos: odontologosDisponibles,
+    odontologos: odontologos, // Retornamos la lista completa de odontólogos para el selector
     allOdontologos: odontologos,
+    timeSlots: timeSlotsWithStatus, // Retornamos la grilla de horarios calculada
+    isNewPatient,
+    lastTurno,
     loading,
     savePending: saveMutation.isPending,
     viewMode,
